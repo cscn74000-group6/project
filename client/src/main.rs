@@ -1,5 +1,6 @@
-use std::env;
+use std::{env, io::Write};
 use vecmath::{self, Vector3};
+use std::io;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -16,6 +17,8 @@ fn main() {
     ];
     let plane_speed = args[8].clone().parse::<i32>().unwrap();
 
+
+
     //enter flight loop
     loop {
         //move aircraft
@@ -30,4 +33,11 @@ fn main() {
     }
 
     //send big data
+}
+
+fn freeze() {
+    print!("Press Enter to continue...");
+    io::stdout().flush().unwrap(); // Ensure the prompt is displayed before waiting for input
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
 }
