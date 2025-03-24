@@ -42,7 +42,7 @@ connections_list = generate_connections()
 
 # Combine and format data
 all_nodes = airports_list + connections_list
-node_data = [f"[{x},{y},0]" for x, y in all_nodes]
+node_data = [f"{x},{y},0" for x, y in all_nodes]
 
 # Write to file
 with open("nodes.txt", "w") as f:
