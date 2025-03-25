@@ -27,8 +27,6 @@ impl ClientHandler {
         }
     }
 
-    /// !STILL IN PROGRESS!
-    ///
     /// The thread task for the ClientHandler. This is meant to be called by the spawn task function.
     pub async fn task(
         &mut self,
@@ -44,8 +42,6 @@ impl ClientHandler {
         Ok(())
     }
 
-    /// !STILL IN PROGRESS!
-    ///
     /// Spawn a thread that runs the ClientHandler task.
     pub async fn spawn_task(&mut self) {
         loop {

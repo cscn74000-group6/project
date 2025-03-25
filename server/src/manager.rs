@@ -24,8 +24,6 @@ impl Manager {
         }
     }
 
-    /// !STILL IN PROGRESS!
-    ///
     /// Main logic loop of the manager class
     pub async fn run(mut self) {
         let (_, warning_receiver) = watch::channel(self.warnings);
@@ -45,11 +43,6 @@ impl Manager {
                                 sender,
                             );
 
-                            // Spawn async task
-                            // tokio::spawn(async move {
-                            //     client.spawn_task();
-                            // });
-
                             let _ = client.spawn_task();
                             self.clients.push(client);
                         }
@@ -64,14 +57,6 @@ impl Manager {
                     return;
                 }
             }
-
-            // Update map of all plane coordinates using values from join handles
-
-            // Calculate any collisions
-
-            // Send warnings
-
-            // Continue
         }
     }
 }
