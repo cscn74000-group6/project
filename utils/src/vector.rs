@@ -1,3 +1,5 @@
+use core::fmt;
+
 #[derive(Debug, Copy, Clone)]
 pub struct Vector3 {
     pub x: f32,
@@ -45,6 +47,11 @@ impl Vector3 {
     }
 }
 
+impl fmt::Display for Vector3 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[{},{},{}]", self.x, self.y, self.z)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
