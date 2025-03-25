@@ -1,6 +1,7 @@
+use std::fmt;
 use tokio::net::TcpStream;
 #[repr(u8)]
-enum FlagState {
+pub enum FlagState {
     WARNING = 0,
     COLLISION = 1,
     COORDINATE = 2,
@@ -8,7 +9,7 @@ enum FlagState {
 }
 
 impl FlagState {
-    fn init(in_state: u8) -> FlagState {
+    pub fn init(in_state: u8) -> FlagState {
         match in_state {
             0 => FlagState::WARNING,
             1 => FlagState::COLLISION,
@@ -23,9 +24,9 @@ impl FlagState {
 }
 
 pub struct PacketHeader {
-    flag: FlagState,
-    plane_id: u8,
-    body_size: u16,
+    pub flag: FlagState,
+    pub plane_id: u8,
+    pub body_size: u16,
 }
 
 impl PacketHeader {
@@ -46,8 +47,8 @@ impl PacketHeader {
 }
 
 pub struct Packet {
-    header: PacketHeader,
-    body: Vec<u8>,
+    pub header: PacketHeader,
+    pub body: Vec<u8>,
 }
 
 impl Packet {
@@ -57,15 +58,46 @@ impl Packet {
             body: Vec::new(),
         };
     }
-    pub fn get_pkt_type(&self) -> String {
+}
+
+impl fmt::Display for FlagState {
+    // This trait requires `fmt` with this exact signature.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let ret: &str;
-        match self.header.flag {
+        match self {
             FlagState::COORDINATE => ret = "COORDINATE",
             FlagState::EXIT => ret = "EXIT",
             FlagState::WARNING => ret = "WARNING",
             FlagState::COLLISION => ret = "COLLISION",
         }
-        return String::from(ret);
+        // Write strictly the first element into the supplied output
+        // stream: `f`. Returns `fmt::Result` which indicates whether the
+        // operation succeeded or failed. Note that `write!` uses syntax which
+        // is very similar to `println!`.
+        write!(f, "{}", String::from(ret))
+    }
+}
+
+impl fmt::Display for PacketHeader {
+    // This trait requires `fmt` with this exact signature.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "[{0}, {1}, {2}]",
+            self.flag, self.plane_id, self.body_size
+        )
+    }
+}
+
+impl fmt::Display for Packet {
+    // This trait requires `fmt` with this exact signature.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{0}\n{1}",
+            self.header,
+            String::from_utf8(self.body.clone()).unwrap()
+        )
     }
 }
 
