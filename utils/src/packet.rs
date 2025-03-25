@@ -1,6 +1,8 @@
 use std::fmt;
 use tokio::net::TcpStream;
-#[repr(u8)]
+
+// This is an enum that designates what flags we have
+#[derive(Clone, Copy)]
 pub enum FlagState {
     WARNING = 0,
     COLLISION = 1,
@@ -9,6 +11,8 @@ pub enum FlagState {
 }
 
 impl FlagState {
+    // init takes a u8 in to give back a FlagState. Prints out a warning but returns the default
+    // value of WARNING if it doesn't match any of the values in the enum
     pub fn init(in_state: u8) -> FlagState {
         match in_state {
             0 => FlagState::WARNING,
@@ -23,6 +27,7 @@ impl FlagState {
     }
 }
 
+// Struct for the Header in a packet
 pub struct PacketHeader {
     pub flag: FlagState,
     pub plane_id: u8,
@@ -30,19 +35,31 @@ pub struct PacketHeader {
 }
 
 impl PacketHeader {
+    // init() returns an "empty" PacketHeader, which is defined as flag: 0 (WARNING), plane_id: 0,
+    // and body_size: 0.
     pub fn init() -> PacketHeader {
         return PacketHeader {
-            flag: FlagState::COORDINATE,
+            flag: FlagState::WARNING,
             plane_id: 0,
             body_size: 0,
         };
     }
-    fn deseralize_packet_header(stream: Vec<u8>) -> PacketHeader {
+    // deseralize_packet_header() takes in a vector<u8> and returns an unpacked PacketHeader. The
+    // function deseralizes in the same way the serialize_packet_header works.
+    pub fn deseralize_packet_header(stream: Vec<u8>) -> PacketHeader {
         return PacketHeader {
-            flag: FlagState::init(*stream.get(1).unwrap()),
-            plane_id: *stream.get(2).unwrap(),
-            body_size: u16::from_ne_bytes([*stream.get(3).unwrap(), *stream.get(4).unwrap()]),
+            flag: FlagState::init(*stream.get(0).unwrap()),
+            plane_id: *stream.get(1).unwrap(),
+            body_size: u16::from_ne_bytes([(stream[2]), (stream[3])]),
         };
+    }
+
+    pub fn seralize_packet_header(&self) -> Vec<u8> {
+        let mut seralized_bytes: Vec<u8> = Vec::new();
+        seralized_bytes.push(self.flag as u8);
+        seralized_bytes.push(self.plane_id);
+        seralized_bytes.extend_from_slice(&self.body_size.to_ne_bytes());
+        return seralized_bytes;
     }
 }
 
@@ -60,6 +77,7 @@ impl Packet {
     }
 }
 
+// Implementing the fmt::Display trait for FlagState so that it is compatible with println!
 impl fmt::Display for FlagState {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -78,6 +96,7 @@ impl fmt::Display for FlagState {
     }
 }
 
+// Implementing the fmt::Display trait for PacketHeader so that it is compatible with println!
 impl fmt::Display for PacketHeader {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -89,6 +108,7 @@ impl fmt::Display for PacketHeader {
     }
 }
 
+// Implementing the fmt::Display trait for Packet so that it is compatible with println!
 impl fmt::Display for Packet {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -104,13 +124,13 @@ impl fmt::Display for Packet {
 // To use the vector return, just use &[variablename]
 pub fn serialize_packet(pkt: Packet) -> Vec<u8> {
     let mut seralized_bytes: Vec<u8> = Vec::new();
-    seralized_bytes.push(pkt.header.flag as u8);
-    seralized_bytes.push(pkt.header.plane_id);
-    seralized_bytes.push(pkt.header.body_size.try_into().unwrap());
+    seralized_bytes.extend(pkt.header.seralize_packet_header());
     seralized_bytes.extend_from_slice(&pkt.body);
     return seralized_bytes;
 }
 
+// Takes in the TcpStream, reads values from it, and returns a Packet deseralized.
+// The logic works, except for the TcpStream which is still untested.
 pub fn deserialize_stream(stream: TcpStream) -> Packet {
     let mut rcv_buf_header: Vec<u8> = vec![0; std::mem::size_of::<PacketHeader>()];
     let mut pkt: Packet = Packet::init();
@@ -132,3 +152,30 @@ pub fn deserialize_stream(stream: TcpStream) -> Packet {
 
     return pkt;
 }
+
+//fn unitTest() {
+//        let bod: &[u8] = b"TRANSMISSION";
+//    let send_pkt: Packet = Packet {
+//        header: PacketHeader {
+//            plane_id: 1,
+//            flag: packet::FlagState::COORDINATE,
+//            body_size: bod.len().try_into().unwrap(),
+//        },
+//        body: bod.to_vec(),
+//    };
+//
+//    println!("{}", send_pkt);
+//
+//    let transmit: Vec<u8> = serialize_packet(send_pkt);
+//
+//    let mut pkt: Packet = Packet::init();
+//
+//    let rcv_buf_header = transmit[0..std::mem::size_of::<PacketHeader>()].to_vec();
+//    pkt.header = PacketHeader::deseralize_packet_header(rcv_buf_header);
+//
+//    let rcv_buf: Vec<u8> = transmit[std::mem::size_of::<PacketHeader>()..].to_vec();
+//    pkt.body = rcv_buf;
+//
+//    println!("{}", pkt);
+//
+//}
