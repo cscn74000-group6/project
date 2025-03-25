@@ -5,6 +5,9 @@ version = 4
 [[package]]
 name = "client"
 version = "0.1.0"
+dependencies = [
+ "utils",
+]
 
 [[package]]
 name = "server"
