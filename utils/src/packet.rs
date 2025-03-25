@@ -36,6 +36,13 @@ impl PacketHeader {
             body_size: 0,
         };
     }
+    fn deseralize_packet_header(stream: Vec<u8>) -> PacketHeader {
+        return PacketHeader {
+            flag: FlagState::init(*stream.get(1).unwrap()),
+            plane_id: *stream.get(2).unwrap(),
+            body_size: u16::from_ne_bytes([*stream.get(3).unwrap(), *stream.get(4).unwrap()]),
+        };
+    }
 }
 
 pub struct Packet {
@@ -75,7 +82,6 @@ pub fn serialize_packet(pkt: Packet) -> Vec<u8> {
 pub fn deserialize_stream(stream: TcpStream) -> Packet {
     let mut rcv_buf_header: Vec<u8> = vec![0; std::mem::size_of::<PacketHeader>()];
     let mut pkt: Packet = Packet::init();
-    let pkt_header = &mut pkt.header;
 
     // Read the data from the buffer
     if let Err(_e) = stream.try_read(&mut rcv_buf_header) {
@@ -83,14 +89,9 @@ pub fn deserialize_stream(stream: TcpStream) -> Packet {
         //return Err(e);
     }
 
-    pkt_header.flag = FlagState::init(*rcv_buf_header.get(1).unwrap());
-    pkt_header.plane_id = *rcv_buf_header.get(2).unwrap();
-    pkt_header.body_size = u16::from_ne_bytes([
-        *rcv_buf_header.get(3).unwrap(),
-        *rcv_buf_header.get(4).unwrap(),
-    ]);
+    pkt.header = PacketHeader::deseralize_packet_header(rcv_buf_header);
 
-    let mut rcv_buf: Vec<u8> = vec![0; pkt_header.body_size.into()];
+    let mut rcv_buf: Vec<u8> = vec![0; pkt.header.body_size.into()];
     if let Err(_e) = stream.try_read(&mut rcv_buf) {
         //eprintln!("{}", e);
         //return Err(e);
