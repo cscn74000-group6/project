@@ -112,12 +112,10 @@ impl fmt::Display for PacketHeader {
 impl fmt::Display for Packet {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{0}\n{1}",
-            self.header,
-            String::from_utf8(self.body.clone()).unwrap()
-        )
+        match String::from_utf8(self.body.clone()) {
+            Ok(body_string) => write!(f, "{0}\n{1}", self.header, body_string),
+            Err(_) => write!(f, "{}\n{:?}", self.header, self.body.as_slice()),
+        } 
     }
 }
 
