@@ -45,7 +45,7 @@ impl PacketHeader {
             body_size: 0,
         };
     }
-    /// Deseralize_packet_header() takes in a vector<u8> and returns an unpacked PacketHeader. The
+    /// Deseralize_packet_header() takes in a u8 slice and returns an unpacked PacketHeader. The
     /// function deseralizes in the same way the serialize_packet_header works.
     pub fn deseralize_packet_header(stream: &[u8]) -> Result<PacketHeader, Box<dyn Error>>{
         if stream.len() < 4 {
@@ -143,7 +143,7 @@ impl fmt::Display for Packet {
 }
 
 /// To use the vector return, just use &[variablename]
-pub fn serialize_packet(pkt: Packet, stream: TcpStream) -> Result<(), std::io::Error> {
+pub fn serialize_packet(pkt: Packet, stream: &mut TcpStream) -> Result<(), std::io::Error> {
     let mut seralized_bytes: Vec<u8> = Vec::new();
     seralized_bytes.extend(pkt.header.seralize_packet_header());
     seralized_bytes.extend_from_slice(&pkt.body);
@@ -155,7 +155,7 @@ pub fn serialize_packet(pkt: Packet, stream: TcpStream) -> Result<(), std::io::E
 
 /// Takes in the TcpStream, reads values from it, and returns a Packet deseralized.
 /// The logic works, except for the TcpStream which is still untested.
-pub fn deserialize_packet(stream: TcpStream) -> Result<Packet, Box<dyn Error>> {
+pub fn deserialize_packet(stream: &mut TcpStream) -> Result<Packet, Box<dyn Error>> {
     let mut rcv_buf_header: Vec<u8> = vec![0; std::mem::size_of::<PacketHeader>()];
     let mut pkt: Packet = Packet::init();
 
