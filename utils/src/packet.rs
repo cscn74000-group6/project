@@ -1,4 +1,5 @@
 use std::fmt;
+use std::error::Error;
 use tokio::net::TcpStream;
 
 // This is an enum that designates what flags we have
@@ -35,8 +36,8 @@ pub struct PacketHeader {
 }
 
 impl PacketHeader {
-    // init() returns an "empty" PacketHeader, which is defined as flag: 0 (WARNING), plane_id: 0,
-    // and body_size: 0.
+    /// Returns an "empty" PacketHeader, which is defined as flag: 0 (WARNING), plane_id: 0,
+    /// and body_size: 0.
     pub fn init() -> PacketHeader {
         return PacketHeader {
             flag: FlagState::WARNING,
@@ -44,22 +45,44 @@ impl PacketHeader {
             body_size: 0,
         };
     }
-    // deseralize_packet_header() takes in a vector<u8> and returns an unpacked PacketHeader. The
-    // function deseralizes in the same way the serialize_packet_header works.
-    pub fn deseralize_packet_header(stream: Vec<u8>) -> PacketHeader {
-        return PacketHeader {
-            flag: FlagState::init(*stream.get(0).unwrap()),
-            plane_id: *stream.get(1).unwrap(),
-            body_size: u16::from_ne_bytes([(stream[2]), (stream[3])]),
-        };
+    /// Deseralize_packet_header() takes in a vector<u8> and returns an unpacked PacketHeader. The
+    /// function deseralizes in the same way the serialize_packet_header works.
+    pub fn deseralize_packet_header(stream: &[u8]) -> Result<PacketHeader, Box<dyn Error>>{
+        if stream.len() < 4 {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Vector does not have enought elements for a PacketHeader"
+            )));
+        }
+
+        let new_flag = stream.first().copied();
+        let plane_id = stream.get(1).copied();
+        let body_1 = stream.get(2).copied();
+        let body_2 = stream.get(3).copied();
+
+        match (new_flag, plane_id, body_1, body_2) {
+            (Some(new_flag), Some(plane_id), Some(body_1), Some(body_2)) => {
+                Ok(PacketHeader {
+                    flag: FlagState::init(new_flag),
+                    plane_id,
+                    body_size: u16::from_ne_bytes([body_1, body_2]),
+                })
+            }
+            _ => {
+                Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Unable to parse PacketHeader fields from Vec<u8>")))
+            }
+        } 
     }
 
+    /// Serialize a packet header into a Vec<u8>
     pub fn seralize_packet_header(&self) -> Vec<u8> {
         let mut seralized_bytes: Vec<u8> = Vec::new();
         seralized_bytes.push(self.flag as u8);
         seralized_bytes.push(self.plane_id);
         seralized_bytes.extend_from_slice(&self.body_size.to_ne_bytes());
-        return seralized_bytes;
+        seralized_bytes
     }
 }
 
@@ -77,7 +100,7 @@ impl Packet {
     }
 }
 
-// Implementing the fmt::Display trait for FlagState so that it is compatible with println!
+/// Implementing the fmt::Display trait for FlagState so that it is compatible with println!
 impl fmt::Display for FlagState {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -96,7 +119,7 @@ impl fmt::Display for FlagState {
     }
 }
 
-// Implementing the fmt::Display trait for PacketHeader so that it is compatible with println!
+/// Implementing the fmt::Display trait for PacketHeader so that it is compatible with println!
 impl fmt::Display for PacketHeader {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -108,7 +131,7 @@ impl fmt::Display for PacketHeader {
     }
 }
 
-// Implementing the fmt::Display trait for Packet so that it is compatible with println!
+/// Implementing the fmt::Display trait for Packet so that it is compatible with println!
 impl fmt::Display for Packet {
     // This trait requires `fmt` with this exact signature.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -119,36 +142,42 @@ impl fmt::Display for Packet {
     }
 }
 
-// To use the vector return, just use &[variablename]
-pub fn serialize_packet(pkt: Packet) -> Vec<u8> {
+/// To use the vector return, just use &[variablename]
+pub fn serialize_packet(pkt: Packet, stream: TcpStream) -> Result<(), std::io::Error> {
     let mut seralized_bytes: Vec<u8> = Vec::new();
     seralized_bytes.extend(pkt.header.seralize_packet_header());
     seralized_bytes.extend_from_slice(&pkt.body);
-    return seralized_bytes;
+    match stream.try_write(&seralized_bytes) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }
 
-// Takes in the TcpStream, reads values from it, and returns a Packet deseralized.
-// The logic works, except for the TcpStream which is still untested.
-pub fn deserialize_stream(stream: TcpStream) -> Packet {
+/// Takes in the TcpStream, reads values from it, and returns a Packet deseralized.
+/// The logic works, except for the TcpStream which is still untested.
+pub fn deserialize_packet(stream: TcpStream) -> Result<Packet, Box<dyn Error>> {
     let mut rcv_buf_header: Vec<u8> = vec![0; std::mem::size_of::<PacketHeader>()];
     let mut pkt: Packet = Packet::init();
 
     // Read the data from the buffer
-    if let Err(_e) = stream.try_read(&mut rcv_buf_header) {
-        //eprintln!("{}", e);
-        //return Err(e);
+    if let Err(e) = stream.try_read(&mut rcv_buf_header) {
+        eprintln!("{}", e);
+        return Err(e.into());
     }
 
-    pkt.header = PacketHeader::deseralize_packet_header(rcv_buf_header);
+    pkt.header = match PacketHeader::deseralize_packet_header(&rcv_buf_header) {
+        Ok(header) => { header },
+        Err(e) => { return Err(e.into()); }
+    };
 
     let mut rcv_buf: Vec<u8> = vec![0; pkt.header.body_size.into()];
-    if let Err(_e) = stream.try_read(&mut rcv_buf) {
-        //eprintln!("{}", e);
-        //return Err(e);
+    if let Err(e) = stream.try_read(&mut rcv_buf) {
+        eprintln!("{}", e);
+        return Err(e.into());
     }
     pkt.body = rcv_buf;
 
-    return pkt;
+    Ok(pkt)
 }
 
 //fn unitTest() {
