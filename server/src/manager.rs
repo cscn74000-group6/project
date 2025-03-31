@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, watch, Mutex};
-use utils::packet::{FlagState, PacketHeader, Packet, serialize_packet, deserialize_packet};
+use tokio::sync::{Mutex, mpsc, watch};
+use utils::packet::{FlagState, Packet, PacketHeader, deserialize_packet, serialize_packet};
 use utils::vector::Vector3;
 
 /// Type to asynchronously store/share the coordinates of active plane coordinates.
@@ -26,11 +26,11 @@ impl Manager {
 
     /// Main logic loop of the manager class
     pub async fn run(self) -> Result<(), std::io::Error> {
-        let listener = TcpListener::bind("127.0.0.1:8001").await?;  
+        let listener = TcpListener::bind("127.0.0.1:8001").await?;
         let coordinates = Arc::new(Mutex::new(HashMap::new()));
         let (_, warning_receiver) = watch::channel((0, 0));
         let (exit_sender, mut exit_receiver) = mpsc::channel::<u8>(100);
-        
+
         // Spawn task to handle client exits.
         let coord_clone = coordinates.clone();
         tokio::spawn(async move {
@@ -51,14 +51,18 @@ impl Manager {
             }
         });
 
-
         loop {
             let (stream, addr) = listener.accept().await?;
             println!("New client connected: {}", addr);
 
             let coord_clone = coordinates.clone();
             let exit_sender = exit_sender.clone();
-            tokio::spawn(Self::handle_client(stream, coord_clone, warning_receiver.clone(), exit_sender));
+            tokio::spawn(Self::handle_client(
+                stream,
+                coord_clone,
+                warning_receiver.clone(),
+                exit_sender,
+            ));
         }
     }
 
@@ -88,20 +92,17 @@ impl Manager {
                         let header = PacketHeader {
                             flag: FlagState::COLLISION,
                             plane_id: 0,
-                            body_size: std::mem::size_of::<(u8, u8)>() as u16 
+                            body_size: std::mem::size_of::<(u8, u8)>() as u16,
                         };
                         let body = vec![];
-                        let pkt = Packet{
-                            header,
-                            body
-                        };
+                        let pkt = Packet { header, body };
 
                         if let Err(e) = serialize_packet(pkt, &mut stream) {
                             println!("Error sending packet: {e}");
                             return;
                         }
                     }
-                },
+                }
                 Err(_) => {
                     println!("Error reading warning from mananger...");
                     return;
@@ -114,8 +115,10 @@ impl Manager {
                 {
                     let mut data = coordinates.lock().await;
                     if data.remove(&pkt.header.plane_id).is_none() {
-                        println!("Unable to remove Plane #{} from active planes: entry not found",
-                            pkt.header.plane_id);
+                        println!(
+                            "Unable to remove Plane #{} from active planes: entry not found",
+                            pkt.header.plane_id
+                        );
                     }
                 }
 
@@ -141,7 +144,8 @@ impl Manager {
             // Acquire lock, push new coordinate to shared HashMap.
             {
                 let mut coord_data = coordinates.lock().await;
-                coord_data.entry(pkt.header.plane_id)
+                coord_data
+                    .entry(pkt.header.plane_id)
                     .or_default()
                     .push(new_coord);
             }

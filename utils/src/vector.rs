@@ -46,7 +46,7 @@ impl Vector3 {
         Vector3::new(vel_x, vel_y, vel_z)
     }
 
-    ///Convert Vector3 to a vector of u8. 
+    ///Convert Vector3 to a vector of u8.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.append(&mut self.x.to_be_bytes().to_vec());
