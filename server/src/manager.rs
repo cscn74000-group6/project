@@ -12,9 +12,9 @@ type Coordinates = Arc<Mutex<HashMap<u8, Vec<Vector3>>>>;
 
 #[derive(Debug)]
 pub struct Manager {
-     coordinates: Coordinates,
-     col_warnings: HashMap<u8, u8>,
-     state_machine: StateMachine
+    coordinates: Coordinates,
+    col_warnings: HashMap<u8, u8>,
+    state_machine: StateMachine,
 }
 
 impl Manager {
@@ -37,7 +37,7 @@ impl Manager {
         let coord_clone = self.coordinates.clone();
         tokio::spawn(async move {
             while let Some(plane_id) = exit_receiver.recv().await {
-                println!("Client {} disconnected", plane_id);
+                tracing::info!("Client {} disconnected", plane_id);
                 let mut data = coord_clone.lock().await;
                 data.remove(&plane_id);
             }
@@ -59,7 +59,7 @@ impl Manager {
             match self.state_machine.get_state() {
                 State::OPEN => {
                     let (stream, addr) = listener.accept().await?;
-                    println!("New client connected: {}", addr);
+                    tracing::info!("New client connected: {}", addr);
 
                     let coord_clone = self.coordinates.clone();
                     let exit_sender = exit_sender.clone();
@@ -69,7 +69,7 @@ impl Manager {
                         warning_sender.subscribe(),
                         exit_sender,
                     ));
-                },
+                }
                 State::CLOSED => {}
             }
         }
@@ -87,7 +87,7 @@ impl Manager {
             let pkt = match timeout(Duration::from_secs(5), deserialize_packet(&mut stream)).await {
                 Ok(Ok(p)) => p,
                 Ok(Err(e)) => {
-                    println!("Error deserializing packet: {e}");
+                    tracing::error!("Error deserializing packet: {e}");
                     return;
                 },
                 Err(_) => {
@@ -112,15 +112,15 @@ impl Manager {
                         let pkt = Packet { header, body };
 
                         if let Err(e) = serialize_packet(pkt, &mut stream) {
-                            println!("Error sending packet: {e}");
+                            tracing::error!("Error sending packet: {e}");
                             return;
                         }
                     }
-                },
+                }
                 Err(_) => {
-                    println!("Error reading warning from mananger...");
+                    tracing::error!("Error reading warning from mananger...");
                     return;
-                },
+                }
                 _ => {}
             };
 
@@ -130,7 +130,7 @@ impl Manager {
                 {
                     let mut data = coordinates.lock().await;
                     if data.remove(&pkt.header.plane_id).is_none() {
-                        println!(
+                        tracing::error!(
                             "Unable to remove Plane #{} from active planes: entry not found",
                             pkt.header.plane_id
                         );
@@ -139,7 +139,7 @@ impl Manager {
 
                 // Send exit message to main thread.
                 if exit_sender.send(pkt.header.plane_id).await.is_err() {
-                    println!("Error sending exit flag to manager...");
+                    tracing::error!("Error sending exit flag to manager...");
                 }
             }
 
@@ -147,10 +147,10 @@ impl Manager {
             let new_coord: Vector3 = match Vector3::from_bytes(pkt.body.as_slice()) {
                 Some(c) => c,
                 None => {
-                    println!("Unable to create Vector3 from bytes...");
-                    println!("Exiting task now...");
+                    tracing::error!("Unable to create Vector3 from bytes...");
+                    tracing::error!("Exiting task now...");
                     if exit_sender.send(pkt.header.plane_id).await.is_err() {
-                        println!("Error sending exit flag to manager...");
+                        tracing::error!("Error sending exit flag to manager...");
                     }
                     return;
                 }
@@ -170,9 +170,9 @@ impl Manager {
     /// Process data.
     async fn process_all_data(coordinates: &Coordinates) {
         let data = coordinates.lock().await;
-        println!("--- Processing all client data ---");
+        tracing::info!("--- Processing all client data ---");
         for (client, messages) in data.iter() {
-            println!("Client [{}]: {:?}", client, messages);
+            tracing::info!("Client [{}]: {:?}", client, messages);
         }
     }
 }
