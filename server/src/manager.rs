@@ -10,7 +10,6 @@ type Coordinates = Arc<Mutex<HashMap<u8, Vec<Vector3>>>>;
 
 #[derive(Debug)]
 pub struct Manager {
-    //pub clients: Vec<ClientHandler>,
     pub coordinates: Coordinates,
     pub col_warnings: HashMap<u8, u8>,
 }
@@ -27,12 +26,11 @@ impl Manager {
     /// Main logic loop of the manager class
     pub async fn run(self) -> Result<(), std::io::Error> {
         let listener = TcpListener::bind("127.0.0.1:8001").await?;
-        let coordinates = Arc::new(Mutex::new(HashMap::new()));
         let (_, warning_receiver) = watch::channel((0, 0));
         let (exit_sender, mut exit_receiver) = mpsc::channel::<u8>(100);
 
         // Spawn task to handle client exits.
-        let coord_clone = coordinates.clone();
+        let coord_clone = self.coordinates.clone();
         tokio::spawn(async move {
             while let Some(plane_id) = exit_receiver.recv().await {
                 println!("Client {} disconnected", plane_id);
@@ -42,7 +40,7 @@ impl Manager {
         });
 
         // Spawn task to process new data.
-        let coord_clone = coordinates.clone();
+        let coord_clone = self.coordinates.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
             loop {
@@ -55,7 +53,7 @@ impl Manager {
             let (stream, addr) = listener.accept().await?;
             println!("New client connected: {}", addr);
 
-            let coord_clone = coordinates.clone();
+            let coord_clone = self.coordinates.clone();
             let exit_sender = exit_sender.clone();
             tokio::spawn(Self::handle_client(
                 stream,
@@ -86,7 +84,7 @@ impl Manager {
             // Check for collision warnings. Send collision packet to client if client for this
             // plane is created.
             match warning_receiver.has_changed() {
-                Ok(_) => {
+                Ok(true) => {
                     let warning = &warning_receiver.borrow_and_update();
                     if warning.0 == pkt.header.plane_id {
                         let header = PacketHeader {
@@ -102,11 +100,12 @@ impl Manager {
                             return;
                         }
                     }
-                }
+                },
                 Err(_) => {
                     println!("Error reading warning from mananger...");
                     return;
-                }
+                },
+                _ => {}
             };
 
             // Handle EXIT flag.
