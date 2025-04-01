@@ -2,7 +2,7 @@ use crate::state_machine::{State, StateMachine};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, mpsc, watch};
+use tokio::sync::{Mutex, mpsc, watch, broadcast};
 use tokio::time::{timeout, Duration};
 use utils::packet::{FlagState, Packet, PacketHeader, deserialize_packet, serialize_packet};
 use utils::vector::Vector3;
@@ -13,7 +13,7 @@ type Coordinates = Arc<Mutex<HashMap<u8, Vec<Vector3>>>>;
 #[derive(Debug)]
 pub struct Manager {
     coordinates: Coordinates,
-    col_warnings: HashMap<u8, u8>,
+    //col_warnings: HashMap<u8, u8>,
     state_machine: StateMachine,
 }
 
@@ -22,7 +22,7 @@ impl Manager {
     pub fn new() -> Manager {
         Manager {
             coordinates: Arc::new(Mutex::new(HashMap::new())),
-            col_warnings: HashMap::new(),
+            //col_warnings: HashMap::new(),
             state_machine: StateMachine::new(),
         }
     }
@@ -30,7 +30,8 @@ impl Manager {
     /// Main logic loop of the manager class
     pub async fn run(self) -> Result<(), std::io::Error> {
         let listener = TcpListener::bind("127.0.0.1:8001").await?;
-        let (warning_sender, _) = watch::channel((0, 0));
+        let (col_sender, _) = watch::channel((0, 0));
+        let (warn_sender, _) = broadcast::channel::<u8>(100);
         let (exit_sender, mut exit_receiver) = mpsc::channel::<u8>(100);
 
         // Spawn task to handle client exits.
@@ -42,6 +43,7 @@ impl Manager {
                 data.remove(&plane_id);
             }
         });
+
 
         // Spawn task to process new data.
         let coord_clone = self.coordinates.clone();
@@ -60,14 +62,17 @@ impl Manager {
                 State::OPEN => {
                     let (stream, addr) = listener.accept().await?;
                     tracing::info!("New client connected: {}", addr);
-
                     let coord_clone = self.coordinates.clone();
+                    let warn_sender = warn_sender.clone();
+                    let warn_receiver = warn_sender.subscribe(); 
                     let exit_sender = exit_sender.clone();
                     tokio::spawn(Self::handle_client(
                         stream,
                         coord_clone,
-                        warning_sender.subscribe(),
+                        col_sender.subscribe(),
                         exit_sender,
+                        warn_sender,
+                        warn_receiver,
                     ));
                 }
                 State::CLOSED => {}
@@ -79,9 +84,18 @@ impl Manager {
     pub async fn handle_client(
         mut stream: TcpStream,
         coordinates: Coordinates,
-        mut warning_receiver: watch::Receiver<(u8, u8)>,
+        mut col_receiver: watch::Receiver<(u8, u8)>,
         exit_sender: mpsc::Sender<u8>,
+        warn_sender: broadcast::Sender<u8>,
+        mut warn_receiver: broadcast::Receiver<u8>
     ) {
+        let plane_id = match deserialize_packet(&mut stream).await {
+            Ok(p) => p.header.plane_id,
+            Err(e) => {
+                println!("Error deserializing packet: {e}");
+                return;
+            }
+        }; 
         loop {
             // Read packet from stream.
             let pkt = match timeout(Duration::from_secs(5), deserialize_packet(&mut stream)).await {
@@ -91,17 +105,20 @@ impl Manager {
                     return;
                 },
                 Err(_) => {
-                    println!("Timed out waitng for packet");
-                    // Send warning to server.
+                    tracing::error!("Timed out waitng for packet");
+                    if warn_sender.send(plane_id).is_err() {
+                        tracing::error!("Error sending exit flag to manager...");
+                    }
+
                     return;
                 }
             };
 
             // Check for collision warnings. Send collision packet to client if client for this
             // plane is created.
-            match warning_receiver.has_changed() {
+            match col_receiver.has_changed() {
                 Ok(true) => {
-                    let warning = &warning_receiver.borrow_and_update();
+                    let warning = &col_receiver.borrow_and_update();
                     if warning.0 == pkt.header.plane_id {
                         let header = PacketHeader {
                             flag: FlagState::COLLISION,
@@ -123,6 +140,38 @@ impl Manager {
                 }
                 _ => {}
             };
+
+            // Check for timeout warnings.
+            match warn_receiver.recv().await {
+                Ok(p) if p != plane_id => {
+                    // Create WARNING packet.
+                    let pkt = Packet {
+                            header: PacketHeader {
+                            flag: FlagState::WARNING,
+                            plane_id: p,
+                            body_size: 0 as u16,
+                        },
+                        body: Vec::new(),
+                    };  
+
+                    // Send WARNING packet.
+                    if let Err(e) = serialize_packet(pkt, &mut stream) {
+                        tracing::error!("Error sending packet: {e}");
+                        return;
+                    }
+                },
+                Ok(p) if p == plane_id => {
+                    // Exit if this client timed out.
+                    if exit_sender.send(pkt.header.plane_id).await.is_err() {
+                        tracing::error!("Error sending exit flag to manager...");
+                        return;
+                    }
+                },
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::error!("Unable to broadcast timeout warning {}", e);
+                }
+            }
 
             // Handle EXIT flag.
             if pkt.header.flag == FlagState::EXIT {
