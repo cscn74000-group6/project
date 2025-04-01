@@ -1,6 +1,7 @@
 use crate::manager::Manager;
 use tracing;
 pub mod manager;
+pub mod state_machine;
 
 #[tokio::main]
 async fn main() {
@@ -11,6 +12,7 @@ async fn main() {
         .with_writer(non_blocking_appender)
         .init();
 
+    // Initialize and run server manager.
     match Manager::new().run().await {
         Ok(_) => {
             tracing::info!("Manager exited gracefully...");

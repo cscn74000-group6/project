@@ -1,3 +1,4 @@
+use crate::state_machine::{State, StateMachine};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -10,8 +11,9 @@ type Coordinates = Arc<Mutex<HashMap<u8, Vec<Vector3>>>>;
 
 #[derive(Debug)]
 pub struct Manager {
-    pub coordinates: Coordinates,
-    pub col_warnings: HashMap<u8, u8>,
+    coordinates: Coordinates,
+    col_warnings: HashMap<u8, u8>,
+    state_machine: StateMachine,
 }
 
 impl Manager {
@@ -20,6 +22,7 @@ impl Manager {
         Manager {
             coordinates: Arc::new(Mutex::new(HashMap::new())),
             col_warnings: HashMap::new(),
+            state_machine: StateMachine::new(),
         }
     }
 
@@ -49,18 +52,25 @@ impl Manager {
             }
         });
 
+        // Listen for new client connections.
+        // Spawn task to handle client.
         loop {
-            let (stream, addr) = listener.accept().await?;
-            tracing::info!("New client connected: {}", addr);
+            match self.state_machine.get_state() {
+                State::OPEN => {
+                    let (stream, addr) = listener.accept().await?;
+                    tracing::info!("New client connected: {}", addr);
 
-            let coord_clone = self.coordinates.clone();
-            let exit_sender = exit_sender.clone();
-            tokio::spawn(Self::handle_client(
-                stream,
-                coord_clone,
-                warning_sender.subscribe(),
-                exit_sender,
-            ));
+                    let coord_clone = self.coordinates.clone();
+                    let exit_sender = exit_sender.clone();
+                    tokio::spawn(Self::handle_client(
+                        stream,
+                        coord_clone,
+                        warning_sender.subscribe(),
+                        exit_sender,
+                    ));
+                }
+                State::CLOSED => {}
+            }
         }
     }
 
