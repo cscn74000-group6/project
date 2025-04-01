@@ -1,5 +1,8 @@
 use crate::state_machine::{State, StateMachine};
 use std::collections::HashMap;
+use std::fmt;
+use std::fs::File;
+use std::io::{self, Write};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, mpsc, watch, broadcast};
@@ -121,6 +124,93 @@ impl Manager {
                 }
             };
 
+            //packet handler
+            match pkt.header.flag {
+                FlagState::COORDINATE => {
+                    // Read coordinates from packet body.
+                    let new_coord: Vector3 = match Vector3::from_bytes(pkt.body.as_slice()) {
+                        Some(c) => c,
+                        None => {
+                            println!("Unable to create Vector3 from bytes...");
+                            println!("Exiting task now...");
+                            if exit_sender.send(pkt.header.plane_id).await.is_err() {
+                                println!("Error sending exit flag to manager...");
+                            }
+                            return;
+                        }
+                    };
+
+                    // Acquire lock, push new coordinate to shared HashMap.
+                    {
+                        let mut coord_data = coordinates.lock().await;
+                        coord_data
+                            .entry(pkt.header.plane_id)
+                            .or_default()
+                            .push(new_coord);
+                    }
+                }
+                FlagState::EXIT => {
+                    //TODO: Handle massive load from client :weary:
+                    let mut file =
+                        File::create(format!("plane_{}.txt", pkt.header.plane_id)).unwrap();
+
+                    match file.write_all(&pkt.body) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            println!("Failed to write final data to file... {}", e)
+                        }
+                    }
+
+                    loop {
+                        let pkt: Packet = match deserialize_packet(&mut stream).await {
+                            Ok(p) => p,
+                            Err(e) => {
+                                println!("Error deserializing exit packet: {e}");
+                                return;
+                            }
+                        };
+
+                        match file.write_all(&pkt.body) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                println!("Failed to write final data to file... {}", e)
+                            }
+                        }
+
+                        if pkt.header.seq_len == 0 {
+                            break;
+                        }
+                    }
+
+                    // Remove plane from active planes.
+                    {
+                        let mut data: tokio::sync::MutexGuard<'_, HashMap<u8, Vec<Vector3>>> =
+                            coordinates.lock().await;
+                        if data.remove(&pkt.header.plane_id).is_none() {
+                            println!(
+                                "Unable to remove Plane #{} from active planes: entry not found",
+                                pkt.header.plane_id
+                            );
+                        }
+                    }
+
+                    // Send exit message to main thread.
+                    if exit_sender.send(pkt.header.plane_id).await.is_err() {
+                        println!("Error sending exit flag to manager...");
+                    }
+                }
+                FlagState::COLLISION => {
+                    println!(
+                        "Something went terribly wrong, the server recieved a COLLISION packet..."
+                    );
+                }
+                FlagState::WARNING => {
+                    println!(
+                        "Something went terribly wrong, the server recieved a WARNING packet..."
+                    );
+                }
+            }
+
             // Check for collision warnings. Send collision packet to client if client for this
             // plane is created.
             match col_receiver.recv().await {
@@ -130,12 +220,13 @@ impl Manager {
                             flag: FlagState::COLLISION,
                             plane_id: 0,
                             body_size: std::mem::size_of::<u8>() as u16,
+                            seq_len: 0
                         };
                         let body = vec![];
                         let pkt = Packet { header, body };
 
                         if let Err(e) = serialize_packet(pkt, &mut stream) {
-                            tracing::error!("Error sending packet: {e}");
+                            println!("Error sending packet: {e}");
                             return;
                         }
                     }
@@ -155,6 +246,7 @@ impl Manager {
                             flag: FlagState::WARNING,
                             plane_id: p,
                             body_size: 0 as u16,
+                            seq_len: 0
                         },
                         body: Vec::new(),
                     };  
