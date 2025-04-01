@@ -45,6 +45,29 @@ impl Vector3 {
 
         Vector3::new(vel_x, vel_y, vel_z)
     }
+
+    ///Convert Vector3 to a vector of u8.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.append(&mut self.x.to_be_bytes().to_vec());
+        bytes.append(&mut self.y.to_be_bytes().to_vec());
+        bytes.append(&mut self.z.to_be_bytes().to_vec());
+        bytes
+    }
+
+    ///Create Vector3 from a slice of u8.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Vector3> {
+        if bytes.len() < 12 {
+            return None;
+        }
+        let x_bytes: [u8; 4] = bytes[0..4].try_into().ok()?;
+        let y_bytes = bytes[4..8].try_into().ok()?;
+        let z_bytes = bytes[8..12].try_into().ok()?;
+        let x = f32::from_be_bytes(x_bytes);
+        let y = f32::from_be_bytes(y_bytes);
+        let z = f32::from_be_bytes(z_bytes);
+        Some(Vector3::new(x, y, z))
+    }
 }
 
 impl fmt::Display for Vector3 {
@@ -52,6 +75,7 @@ impl fmt::Display for Vector3 {
         write!(f, "[{},{},{}]", self.x, self.y, self.z)
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

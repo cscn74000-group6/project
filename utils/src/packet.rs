@@ -1,9 +1,9 @@
 use std::fmt;
-use std::error::Error;
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
 // This is an enum that designates what flags we have
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum FlagState {
     WARNING = 0,
     COLLISION = 1,
@@ -45,14 +45,14 @@ impl PacketHeader {
             body_size: 0,
         };
     }
-    /// Deseralize_packet_header() takes in a vector<u8> and returns an unpacked PacketHeader. The
+    /// Deseralize_packet_header() takes in a u8 slice and returns an unpacked PacketHeader. The
     /// function deseralizes in the same way the serialize_packet_header works.
-    pub fn deseralize_packet_header(stream: &[u8]) -> Result<PacketHeader, Box<dyn Error>>{
+    pub fn deseralize_packet_header(stream: &[u8]) -> Result<PacketHeader, std::io::Error> {
         if stream.len() < 4 {
-            return Err(Box::new(std::io::Error::new(
+            return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "Vector does not have enought elements for a PacketHeader"
-            )));
+                "Vector does not have enought elements for a PacketHeader",
+            ));
         }
 
         let new_flag = stream.first().copied();
@@ -61,19 +61,16 @@ impl PacketHeader {
         let body_2 = stream.get(3).copied();
 
         match (new_flag, plane_id, body_1, body_2) {
-            (Some(new_flag), Some(plane_id), Some(body_1), Some(body_2)) => {
-                Ok(PacketHeader {
-                    flag: FlagState::init(new_flag),
-                    plane_id,
-                    body_size: u16::from_ne_bytes([body_1, body_2]),
-                })
-            }
-            _ => {
-                Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Unable to parse PacketHeader fields from Vec<u8>")))
-            }
-        } 
+            (Some(new_flag), Some(plane_id), Some(body_1), Some(body_2)) => Ok(PacketHeader {
+                flag: FlagState::init(new_flag),
+                plane_id,
+                body_size: u16::from_ne_bytes([body_1, body_2]),
+            }),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Unable to parse PacketHeader fields from Vec<u8>",
+            )),
+        }
     }
 
     /// Serialize a packet header into a Vec<u8>
@@ -138,12 +135,12 @@ impl fmt::Display for Packet {
         match String::from_utf8(self.body.clone()) {
             Ok(body_string) => write!(f, "{0}\n{1}", self.header, body_string),
             Err(_) => write!(f, "{}\n{:?}", self.header, self.body.as_slice()),
-        } 
+        }
     }
 }
 
 /// To use the vector return, just use &[variablename]
-pub fn serialize_packet(pkt: Packet, stream: TcpStream) -> Result<(), std::io::Error> {
+pub fn serialize_packet(pkt: Packet, stream: &mut TcpStream) -> Result<(), std::io::Error> {
     let mut seralized_bytes: Vec<u8> = Vec::new();
     seralized_bytes.extend(pkt.header.seralize_packet_header());
     seralized_bytes.extend_from_slice(&pkt.body);
@@ -155,26 +152,22 @@ pub fn serialize_packet(pkt: Packet, stream: TcpStream) -> Result<(), std::io::E
 
 /// Takes in the TcpStream, reads values from it, and returns a Packet deseralized.
 /// The logic works, except for the TcpStream which is still untested.
-pub fn deserialize_packet(stream: TcpStream) -> Result<Packet, Box<dyn Error>> {
+pub async fn deserialize_packet(stream: &mut TcpStream) -> Result<Packet, std::io::Error> {
     let mut rcv_buf_header: Vec<u8> = vec![0; std::mem::size_of::<PacketHeader>()];
     let mut pkt: Packet = Packet::init();
 
     // Read the data from the buffer
-    if let Err(e) = stream.try_read(&mut rcv_buf_header) {
-        eprintln!("{}", e);
-        return Err(e.into());
-    }
+    stream.read_exact(&mut rcv_buf_header).await?;
 
     pkt.header = match PacketHeader::deseralize_packet_header(&rcv_buf_header) {
-        Ok(header) => { header },
-        Err(e) => { return Err(e.into()); }
+        Ok(header) => header,
+        Err(e) => {
+            return Err(e);
+        }
     };
 
     let mut rcv_buf: Vec<u8> = vec![0; pkt.header.body_size.into()];
-    if let Err(e) = stream.try_read(&mut rcv_buf) {
-        eprintln!("{}", e);
-        return Err(e.into());
-    }
+    stream.read_exact(&mut rcv_buf).await?;
     pkt.body = rcv_buf;
 
     Ok(pkt)
