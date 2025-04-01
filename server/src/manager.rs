@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, mpsc, watch};
+use tokio::time::{timeout, Duration};
 use utils::packet::{FlagState, Packet, PacketHeader, deserialize_packet, serialize_packet};
 use utils::vector::Vector3;
 
@@ -37,8 +38,8 @@ impl Manager {
         tokio::spawn(async move {
             while let Some(plane_id) = exit_receiver.recv().await {
                 tracing::info!("Client {} disconnected", plane_id);
-                let mut state = coord_clone.lock().await;
-                state.remove(&plane_id);
+                let mut data = coord_clone.lock().await;
+                data.remove(&plane_id);
             }
         });
 
@@ -83,10 +84,15 @@ impl Manager {
     ) {
         loop {
             // Read packet from stream.
-            let pkt = match deserialize_packet(&mut stream).await {
-                Ok(p) => p,
-                Err(e) => {
+            let pkt = match timeout(Duration::from_secs(5), deserialize_packet(&mut stream)).await {
+                Ok(Ok(p)) => p,
+                Ok(Err(e)) => {
                     tracing::error!("Error deserializing packet: {e}");
+                    return;
+                },
+                Err(_) => {
+                    println!("Timed out waitng for packet");
+                    // Send warning to server.
                     return;
                 }
             };
