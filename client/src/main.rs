@@ -89,9 +89,12 @@ async fn main() {
         let mut count = 0;
         let segments = str_buf.len() / chunk_size;
         // let test = segments-count;
+        //count = number of segments sent SO FAR
+        //segments = number of segments to send TOTAL
 
-        while count < segments {
-            //slice
+        //while the number of sent segments is less than or equal to the number to send
+        while count <= segments {
+            //chose end point
             let end = std::cmp::min(count + chunk_size, str_buf.len());
 
             let chunk = &str_buf[count..end];
@@ -121,6 +124,9 @@ async fn main() {
     }
     println!("Done, exiting...");
 
+    //wait for 5 seconds
+    let ten_millis = time::Duration::from_secs(5);
+    thread::sleep(ten_millis);
     // TCP DEMO CODE
     // use tokio::io::AsyncWriteExt;
     // use tokio::net::TcpStream;
