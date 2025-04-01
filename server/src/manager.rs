@@ -81,6 +81,62 @@ impl Manager {
                 }
             };
 
+            //packet handler
+            match pkt.header.flag {
+                FlagState::COORDINATE => {
+                    // Read coordinates from packet body.
+                    let new_coord: Vector3 = match Vector3::from_bytes(pkt.body.as_slice()) {
+                        Some(c) => c,
+                        None => {
+                            println!("Unable to create Vector3 from bytes...");
+                            println!("Exiting task now...");
+                            if exit_sender.send(pkt.header.plane_id).await.is_err() {
+                                println!("Error sending exit flag to manager...");
+                            }
+                            return;
+                        }
+                    };
+
+                    // Acquire lock, push new coordinate to shared HashMap.
+                    {
+                        let mut coord_data = coordinates.lock().await;
+                        coord_data
+                            .entry(pkt.header.plane_id)
+                            .or_default()
+                            .push(new_coord);
+                    }
+                }
+                FlagState::EXIT => {
+                    //TODO: Handle massive load from client :weary:
+                    // Remove plane from active planes.
+                    {
+                        let mut data: tokio::sync::MutexGuard<'_, HashMap<u8, Vec<Vector3>>> =
+                            coordinates.lock().await;
+                        if data.remove(&pkt.header.plane_id).is_none() {
+                            println!(
+                                "Unable to remove Plane #{} from active planes: entry not found",
+                                pkt.header.plane_id
+                            );
+                        }
+                    }
+
+                    // Send exit message to main thread.
+                    if exit_sender.send(pkt.header.plane_id).await.is_err() {
+                        println!("Error sending exit flag to manager...");
+                    }
+                }
+                FlagState::COLLISION => {
+                    println!(
+                        "Something went terribly wrong, the server recieved a COLLISION packet..."
+                    );
+                }
+                FlagState::WARNING => {
+                    println!(
+                        "Something went terribly wrong, the server recieved a WARNING packet..."
+                    );
+                }
+            }
+
             // Check for collision warnings. Send collision packet to client if client for this
             // plane is created.
             match warning_receiver.has_changed() {
@@ -100,54 +156,13 @@ impl Manager {
                             return;
                         }
                     }
-                },
+                }
                 Err(_) => {
                     println!("Error reading warning from mananger...");
                     return;
-                },
+                }
                 _ => {}
             };
-
-            // Handle EXIT flag.
-            if pkt.header.flag == FlagState::EXIT {
-                // Remove plane from active planes.
-                {
-                    let mut data = coordinates.lock().await;
-                    if data.remove(&pkt.header.plane_id).is_none() {
-                        println!(
-                            "Unable to remove Plane #{} from active planes: entry not found",
-                            pkt.header.plane_id
-                        );
-                    }
-                }
-
-                // Send exit message to main thread.
-                if exit_sender.send(pkt.header.plane_id).await.is_err() {
-                    println!("Error sending exit flag to manager...");
-                }
-            }
-
-            // Read coordinates from packet body.
-            let new_coord: Vector3 = match Vector3::from_bytes(pkt.body.as_slice()) {
-                Some(c) => c,
-                None => {
-                    println!("Unable to create Vector3 from bytes...");
-                    println!("Exiting task now...");
-                    if exit_sender.send(pkt.header.plane_id).await.is_err() {
-                        println!("Error sending exit flag to manager...");
-                    }
-                    return;
-                }
-            };
-
-            // Acquire lock, push new coordinate to shared HashMap.
-            {
-                let mut coord_data = coordinates.lock().await;
-                coord_data
-                    .entry(pkt.header.plane_id)
-                    .or_default()
-                    .push(new_coord);
-            }
         }
     }
 
