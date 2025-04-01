@@ -50,6 +50,7 @@ async fn main() {
             flag: FlagState::COORDINATE,
             plane_id: client_id,
             body_size: body.len() as u16,
+            seq_len: 0
         };
         let pkt = Packet { header, body };
 

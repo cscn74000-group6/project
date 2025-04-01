@@ -33,6 +33,7 @@ pub struct PacketHeader {
     pub flag: FlagState,
     pub plane_id: u8,
     pub body_size: u16,
+    pub seq_len: u8
 }
 
 impl PacketHeader {
@@ -43,12 +44,13 @@ impl PacketHeader {
             flag: FlagState::WARNING,
             plane_id: 0,
             body_size: 0,
+            seq_len: 0
         };
     }
     /// Deseralize_packet_header() takes in a u8 slice and returns an unpacked PacketHeader. The
     /// function deseralizes in the same way the serialize_packet_header works.
     pub fn deseralize_packet_header(stream: &[u8]) -> Result<PacketHeader, std::io::Error> {
-        if stream.len() < 4 {
+        if stream.len() < std::mem::size_of::<PacketHeader>() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Vector does not have enought elements for a PacketHeader",
@@ -59,12 +61,14 @@ impl PacketHeader {
         let plane_id = stream.get(1).copied();
         let body_1 = stream.get(2).copied();
         let body_2 = stream.get(3).copied();
+        let seq_len = stream.get(4).copied();
 
-        match (new_flag, plane_id, body_1, body_2) {
-            (Some(new_flag), Some(plane_id), Some(body_1), Some(body_2)) => Ok(PacketHeader {
+        match (new_flag, plane_id, body_1, body_2, seq_len) {
+            (Some(new_flag), Some(plane_id), Some(body_1), Some(body_2), Some(seq_len)) => Ok(PacketHeader {
                 flag: FlagState::init(new_flag),
                 plane_id,
                 body_size: u16::from_ne_bytes([body_1, body_2]),
+                seq_len
             }),
             _ => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
