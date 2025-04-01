@@ -3,3 +3,6 @@ target/
 .idea/
 .vscode/
 *.lock
+**/log/**
+*.profdata
+*.profraw
