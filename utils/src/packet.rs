@@ -3,7 +3,7 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
 // This is an enum that designates what flags we have
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum FlagState {
     WARNING = 0,
     COLLISION = 1,
@@ -20,8 +20,8 @@ impl FlagState {
             1 => FlagState::COLLISION,
             2 => FlagState::COORDINATE,
             3 => FlagState::EXIT,
-            4_u8..=u8::MAX => {
-                eprintln!("Invalid integer called for FlagState");
+            _ => {
+                eprintln!("Invalid integer called for FlagState: {}", in_state);
                 return FlagState::WARNING;
             }
         }
@@ -29,6 +29,7 @@ impl FlagState {
 }
 
 // Struct for the Header in a packet
+#[derive(Debug, Clone)]
 pub struct PacketHeader {
     pub flag: FlagState,
     pub plane_id: u8,
@@ -56,7 +57,6 @@ impl PacketHeader {
                 "Vector does not have enought elements for a PacketHeader",
             ));
         }
-
         let new_flag = stream.first().copied();
         let plane_id = stream.get(1).copied();
         let body_1 = stream.get(2).copied();
@@ -83,6 +83,8 @@ impl PacketHeader {
         seralized_bytes.push(self.flag as u8);
         seralized_bytes.push(self.plane_id);
         seralized_bytes.extend_from_slice(&self.body_size.to_ne_bytes());
+        seralized_bytes.push(self.seq_len);
+        dbg!(&seralized_bytes);
         seralized_bytes
     }
 }
@@ -148,6 +150,7 @@ pub fn serialize_packet(pkt: Packet, stream: &mut TcpStream) -> Result<(), std::
     let mut seralized_bytes: Vec<u8> = Vec::new();
     seralized_bytes.extend(pkt.header.seralize_packet_header());
     seralized_bytes.extend_from_slice(&pkt.body);
+    dbg!(&seralized_bytes[0..20]);                  //data is intact here
     match stream.try_write(&seralized_bytes) {
         Ok(_) => Ok(()),
         Err(e) => Err(e.into()),
@@ -163,6 +166,10 @@ pub async fn deserialize_packet(stream: &mut TcpStream) -> Result<Packet, std::i
     // Read the data from the buffer
     stream.read_exact(&mut rcv_buf_header).await?;
 
+
+    dbg!(&rcv_buf_header);                   //data is corrupt here
+
+
     pkt.header = match PacketHeader::deseralize_packet_header(&rcv_buf_header) {
         Ok(header) => header,
         Err(e) => {
@@ -170,7 +177,7 @@ pub async fn deserialize_packet(stream: &mut TcpStream) -> Result<Packet, std::i
         }
     };
 
-    let mut rcv_buf: Vec<u8> = vec![0; pkt.header.body_size.into()];
+    let mut rcv_buf: Vec<u8> = vec![0; pkt.header.bDody_size.into()];
     stream.read_exact(&mut rcv_buf).await?;
     pkt.body = rcv_buf;
 

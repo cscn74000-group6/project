@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::fmt;
+use std::fs::File;
+use std::io::{self, Write};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, mpsc, watch};
@@ -108,6 +111,37 @@ impl Manager {
                 }
                 FlagState::EXIT => {
                     //TODO: Handle massive load from client :weary:
+                    let mut file =
+                        File::create(format!("plane_{}.txt", pkt.header.plane_id)).unwrap();
+
+                    match file.write_all(&pkt.body) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            println!("Failed to write final data to file... {}", e)
+                        }
+                    }
+
+                    loop {
+                        let pkt: Packet = match deserialize_packet(&mut stream).await {
+                            Ok(p) => p,
+                            Err(e) => {
+                                println!("Error deserializing packet: {e}");
+                                return;
+                            }
+                        };
+
+                        match file.write_all(&pkt.body) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                println!("Failed to write final data to file... {}", e)
+                            }
+                        }
+
+                        if pkt.header.seq_len == 0 {
+                            break;
+                        }
+                    }
+
                     // Remove plane from active planes.
                     {
                         let mut data: tokio::sync::MutexGuard<'_, HashMap<u8, Vec<Vector3>>> =
@@ -147,7 +181,7 @@ impl Manager {
                             flag: FlagState::COLLISION,
                             plane_id: 0,
                             body_size: std::mem::size_of::<(u8, u8)>() as u16,
-                            seq_len: 0
+                            seq_len: 0,
                         };
                         let body = vec![];
                         let pkt = Packet { header, body };
