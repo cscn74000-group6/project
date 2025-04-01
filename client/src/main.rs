@@ -95,9 +95,11 @@ async fn main() {
         //while the number of sent segments is less than or equal to the number to send
         while count <= segments {
             //chose end point
-            let end = std::cmp::min(count + chunk_size, str_buf.len());
-
-            let chunk = &str_buf[count..end];
+            let end = std::cmp::min(count * chunk_size + chunk_size, str_buf.len());
+            //chose start point
+            let start = count * chunk_size;
+            dbg!(start, end);
+            let chunk = &str_buf[start..end];
 
             // Initialize packet
             let final_body = chunk.as_bytes().to_vec();
