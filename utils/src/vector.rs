@@ -46,6 +46,25 @@ impl Vector3 {
         Vector3::new(vel_x, vel_y, vel_z)
     }
 
+    ///Calculate if there is intersection between two points.
+    pub fn intersection(p1: Vector3, d1: Vector3, p2: Vector3, d2: Vector3) -> Option<Vector3> {
+        let det = d1.x * d2.y - d1.y * d2.x;
+        if det.abs() < f32::EPSILON {
+            return None; // Lines are parallel or coincident
+        }
+
+        let dx = p2.x - p1.x;
+        let dy = p2.y - p1.y;
+
+        let t = (dx * d2.y - dy * d2.x) / det;
+
+        // Compute intersection point using parameter t
+        let ix = p1.x + t * d1.x;
+        let iy = p1.y + t * d1.y;
+
+        Some(Vector3 { x: ix, y: iy, z: 0.0 }) // Z is irrelevant
+    }
+
     ///Convert Vector3 to a vector of u8.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
