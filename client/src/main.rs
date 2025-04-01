@@ -7,7 +7,7 @@ use utils::vector::Vector3;
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
-    let client_id: String = args[1].clone();
+    let client_id:u8 = args[1].clone().parse::<u8>().unwrap();
     let start_pos: Vector3 = Vector3::new(
         args[2].clone().parse::<f32>().unwrap(),
         args[3].clone().parse::<f32>().unwrap(),
@@ -48,7 +48,7 @@ async fn main() {
         let body = plane_pos.to_bytes();
         let header = PacketHeader {
             flag: FlagState::COORDINATE,
-            plane_id: 1,
+            plane_id: client_id,
             body_size: body.len() as u16,
         };
         let pkt = Packet { header, body };
@@ -63,10 +63,16 @@ async fn main() {
         println!("Packet sent...");
 
         //wait for 5 seconds
-        let ten_millis = time::Duration::from_secs(1);
+        let ten_millis = time::Duration::from_secs(5);
         thread::sleep(ten_millis);
     }
 
+    //send data
+    println!("Done");
+
+    //wait for 5 seconds
+    let ten_millis = time::Duration::from_secs(5);
+    thread::sleep(ten_millis);
     //send big data
 
     // TCP DEMO CODE
