@@ -1,6 +1,5 @@
 use crate::manager::Manager;
 use tracing;
-pub mod client_handler;
 pub mod manager;
 
 #[tokio::main]
@@ -12,6 +11,12 @@ async fn main() {
         .with_writer(non_blocking_appender)
         .init();
     tracing::error!("Catch me!");
-    let manager = Manager::new();
-    manager.run().await;
+    match Manager::new().run().await {
+        Ok(_) => {
+            println!("Manager exited gracefully...");
+        }
+        Err(e) => {
+            eprintln!("Manager exitied with error: {e}");
+        }
+    }
 }
