@@ -51,7 +51,8 @@ async fn main() {
             tracing::info!("{client_id} moved to {plane_pos}");
 
             // if distance to destination is less than A VALUE (idk what) (probably unhardcode this)
-            if Vector3::distance(plane_pos, end_pos) < 10.0 {
+            if Vector3::distance(plane_pos, end_pos) < 1.0 {
+                println!("close");
                 break;
             }
 
@@ -133,7 +134,7 @@ async fn main() {
             //increment the counter
             count += 1;
         }
-    }
+    
     println!("Done, exiting...");
 
     //wait for 5 seconds
