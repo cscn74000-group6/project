@@ -220,6 +220,7 @@ impl Manager {
                             flag: FlagState::COLLISION,
                             plane_id: 0,
                             body_size: std::mem::size_of::<u8>() as u16,
+                            seq_len: 0
                         };
                         let body = vec![];
                         let pkt = Packet { header, body };
@@ -245,6 +246,7 @@ impl Manager {
                             flag: FlagState::WARNING,
                             plane_id: p,
                             body_size: 0 as u16,
+                            seq_len: 0
                         },
                         body: Vec::new(),
                     };  
