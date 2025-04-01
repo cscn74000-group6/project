@@ -125,7 +125,7 @@ impl Manager {
                         let pkt: Packet = match deserialize_packet(&mut stream).await {
                             Ok(p) => p,
                             Err(e) => {
-                                println!("Error deserializing packet: {e}");
+                                println!("Error deserializing exit packet: {e}");
                                 return;
                             }
                         };
