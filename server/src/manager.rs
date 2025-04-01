@@ -1,10 +1,12 @@
+use crate::state_machine::{State, StateMachine};
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Write};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, mpsc, watch};
+use tokio::sync::{Mutex, mpsc, watch, broadcast};
+use tokio::time::{timeout, Duration};
 use utils::packet::{FlagState, Packet, PacketHeader, deserialize_packet, serialize_packet};
 use utils::vector::Vector3;
 
@@ -13,8 +15,9 @@ type Coordinates = Arc<Mutex<HashMap<u8, Vec<Vector3>>>>;
 
 #[derive(Debug)]
 pub struct Manager {
-    pub coordinates: Coordinates,
-    pub col_warnings: HashMap<u8, u8>,
+    coordinates: Coordinates,
+    //col_warnings: HashMap<u8, u8>,
+    state_machine: StateMachine,
 }
 
 impl Manager {
@@ -22,25 +25,28 @@ impl Manager {
     pub fn new() -> Manager {
         Manager {
             coordinates: Arc::new(Mutex::new(HashMap::new())),
-            col_warnings: HashMap::new(),
+            //col_warnings: HashMap::new(),
+            state_machine: StateMachine::new(),
         }
     }
 
     /// Main logic loop of the manager class
     pub async fn run(self) -> Result<(), std::io::Error> {
         let listener = TcpListener::bind("127.0.0.1:8001").await?;
-        let (warning_sender, _) = watch::channel((0, 0));
+        let (col_sender, _) = watch::channel((0, 0));
+        let (warn_sender, _) = broadcast::channel::<u8>(100);
         let (exit_sender, mut exit_receiver) = mpsc::channel::<u8>(100);
 
         // Spawn task to handle client exits.
         let coord_clone = self.coordinates.clone();
         tokio::spawn(async move {
             while let Some(plane_id) = exit_receiver.recv().await {
-                println!("Client {} disconnected", plane_id);
-                let mut state = coord_clone.lock().await;
-                state.remove(&plane_id);
+                tracing::info!("Client {} disconnected", plane_id);
+                let mut data = coord_clone.lock().await;
+                data.remove(&plane_id);
             }
         });
+
 
         // Spawn task to process new data.
         let coord_clone = self.coordinates.clone();
@@ -52,18 +58,28 @@ impl Manager {
             }
         });
 
+        // Listen for new client connections.
+        // Spawn task to handle client.
         loop {
-            let (stream, addr) = listener.accept().await?;
-            println!("New client connected: {}", addr);
-
-            let coord_clone = self.coordinates.clone();
-            let exit_sender = exit_sender.clone();
-            tokio::spawn(Self::handle_client(
-                stream,
-                coord_clone,
-                warning_sender.subscribe(),
-                exit_sender,
-            ));
+            match self.state_machine.get_state() {
+                State::OPEN => {
+                    let (stream, addr) = listener.accept().await?;
+                    tracing::info!("New client connected: {}", addr);
+                    let coord_clone = self.coordinates.clone();
+                    let warn_sender = warn_sender.clone();
+                    let warn_receiver = warn_sender.subscribe(); 
+                    let exit_sender = exit_sender.clone();
+                    tokio::spawn(Self::handle_client(
+                        stream,
+                        coord_clone,
+                        col_sender.subscribe(),
+                        exit_sender,
+                        warn_sender,
+                        warn_receiver,
+                    ));
+                }
+                State::CLOSED => {}
+            }
         }
     }
 
@@ -71,15 +87,32 @@ impl Manager {
     pub async fn handle_client(
         mut stream: TcpStream,
         coordinates: Coordinates,
-        mut warning_receiver: watch::Receiver<(u8, u8)>,
+        mut col_receiver: watch::Receiver<(u8, u8)>,
         exit_sender: mpsc::Sender<u8>,
+        warn_sender: broadcast::Sender<u8>,
+        mut warn_receiver: broadcast::Receiver<u8>
     ) {
+        let plane_id = match deserialize_packet(&mut stream).await {
+            Ok(p) => p.header.plane_id,
+            Err(e) => {
+                println!("Error deserializing packet: {e}");
+                return;
+            }
+        }; 
         loop {
             // Read packet from stream.
-            let pkt = match deserialize_packet(&mut stream).await {
-                Ok(p) => p,
-                Err(e) => {
-                    println!("Error deserializing packet: {e}");
+            let pkt = match timeout(Duration::from_secs(5), deserialize_packet(&mut stream)).await {
+                Ok(Ok(p)) => p,
+                Ok(Err(e)) => {
+                    tracing::error!("Error deserializing packet: {e}");
+                    return;
+                },
+                Err(_) => {
+                    tracing::error!("Timed out waitng for packet");
+                    if warn_sender.send(plane_id).is_err() {
+                        tracing::error!("Error sending exit flag to manager...");
+                    }
+
                     return;
                 }
             };
@@ -204,9 +237,9 @@ impl Manager {
     /// Process data.
     async fn process_all_data(coordinates: &Coordinates) {
         let data = coordinates.lock().await;
-        println!("--- Processing all client data ---");
+        tracing::info!("--- Processing all client data ---");
         for (client, messages) in data.iter() {
-            println!("Client [{}]: {:?}", client, messages);
+            tracing::info!("Client [{}]: {:?}", client, messages);
         }
     }
 }
