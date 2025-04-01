@@ -26,7 +26,7 @@ impl Manager {
     /// Main logic loop of the manager class
     pub async fn run(self) -> Result<(), std::io::Error> {
         let listener = TcpListener::bind("127.0.0.1:8001").await?;
-        let (_, warning_receiver) = watch::channel((0, 0));
+        let (warning_sender, _) = watch::channel((0, 0));
         let (exit_sender, mut exit_receiver) = mpsc::channel::<u8>(100);
 
         // Spawn task to handle client exits.
@@ -58,7 +58,7 @@ impl Manager {
             tokio::spawn(Self::handle_client(
                 stream,
                 coord_clone,
-                warning_receiver.clone(),
+                warning_sender.subscribe(),
                 exit_sender,
             ));
         }
