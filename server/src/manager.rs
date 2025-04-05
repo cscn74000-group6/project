@@ -1,12 +1,12 @@
 use crate::state_machine::{State, StateMachine};
+use core::error;
 use std::collections::HashMap;
-use std::fmt;
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::Write;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, mpsc, watch, broadcast};
-use tokio::time::{timeout, Duration};
+use tokio::sync::{Mutex, broadcast, mpsc};
+use tokio::time::{Duration, timeout};
 use utils::packet::{FlagState, Packet, PacketHeader, deserialize_packet, serialize_packet};
 use utils::vector::Vector3;
 
@@ -16,7 +16,6 @@ type Coordinates = Arc<Mutex<HashMap<u8, Vec<Vector3>>>>;
 #[derive(Debug)]
 pub struct Manager {
     coordinates: Coordinates,
-    //col_warnings: HashMap<u8, u8>,
     state_machine: StateMachine,
 }
 
@@ -25,7 +24,6 @@ impl Manager {
     pub fn new() -> Manager {
         Manager {
             coordinates: Arc::new(Mutex::new(HashMap::new())),
-            //col_warnings: HashMap::new(),
             state_machine: StateMachine::new(),
         }
     }
@@ -48,7 +46,6 @@ impl Manager {
             }
         });
 
-
         // Spawn task to process new data.
         let coord_clone = self.coordinates.clone();
         let col_sender_clone = Arc::clone(&col_sender);
@@ -68,14 +65,13 @@ impl Manager {
                     let (stream, addr) = listener.accept().await?;
                     tracing::info!("New client connected: {}", addr);
                     let coord_clone = self.coordinates.clone();
-                    let col_sender_clone = Arc::clone(&col_sender);
                     let col_receiver = {
                         let sender = col_sender.lock().await;
                         sender.subscribe()
                     };
                     let exit_sender = exit_sender.clone();
                     let warn_sender = warn_sender.clone();
-                    let warn_receiver = warn_sender.subscribe(); 
+                    let warn_receiver = warn_sender.subscribe();
                     tokio::spawn(Self::handle_client(
                         stream,
                         coord_clone,
@@ -97,15 +93,15 @@ impl Manager {
         mut col_receiver: broadcast::Receiver<u8>,
         exit_sender: mpsc::Sender<u8>,
         warn_sender: broadcast::Sender<u8>,
-        mut warn_receiver: broadcast::Receiver<u8>
+        mut warn_receiver: broadcast::Receiver<u8>,
     ) {
         let plane_id = match deserialize_packet(&mut stream).await {
             Ok(p) => p.header.plane_id,
             Err(e) => {
-                println!("Error deserializing packet: {e}");
+                tracing::error!("Error deserializing packet: {e}");
                 return;
             }
-        }; 
+        };
         loop {
             // Read packet from stream.
             let pkt = match timeout(Duration::from_secs(5), deserialize_packet(&mut stream)).await {
@@ -113,7 +109,7 @@ impl Manager {
                 Ok(Err(e)) => {
                     tracing::error!("Error deserializing packet: {e}");
                     return;
-                },
+                }
                 Err(_) => {
                     tracing::error!("Timed out waitng for packet");
                     if warn_sender.send(plane_id).is_err() {
@@ -131,10 +127,10 @@ impl Manager {
                     let new_coord: Vector3 = match Vector3::from_bytes(pkt.body.as_slice()) {
                         Some(c) => c,
                         None => {
-                            println!("Unable to create Vector3 from bytes...");
-                            println!("Exiting task now...");
+                            tracing::error!("Unable to create Vector3 from bytes...");
+                            tracing::error!("Exiting task now...");
                             if exit_sender.send(pkt.header.plane_id).await.is_err() {
-                                println!("Error sending exit flag to manager...");
+                                tracing::error!("Error sending exit flag to manager...");
                             }
                             return;
                         }
@@ -157,7 +153,7 @@ impl Manager {
                     match file.write_all(&pkt.body) {
                         Ok(_) => {}
                         Err(e) => {
-                            println!("Failed to write final data to file... {}", e)
+                            tracing::error!("Failed to write final data to file... {}", e)
                         }
                     }
 
@@ -165,7 +161,7 @@ impl Manager {
                         let pkt: Packet = match deserialize_packet(&mut stream).await {
                             Ok(p) => p,
                             Err(e) => {
-                                println!("Error deserializing exit packet: {e}");
+                                tracing::error!("Error deserializing exit packet: {e}");
                                 return;
                             }
                         };
@@ -173,7 +169,7 @@ impl Manager {
                         match file.write_all(&pkt.body) {
                             Ok(_) => {}
                             Err(e) => {
-                                println!("Failed to write final data to file... {}", e)
+                                tracing::error!("Failed to write final data to file... {}", e)
                             }
                         }
 
@@ -187,7 +183,7 @@ impl Manager {
                         let mut data: tokio::sync::MutexGuard<'_, HashMap<u8, Vec<Vector3>>> =
                             coordinates.lock().await;
                         if data.remove(&pkt.header.plane_id).is_none() {
-                            println!(
+                            tracing::error!(
                                 "Unable to remove Plane #{} from active planes: entry not found",
                                 pkt.header.plane_id
                             );
@@ -196,16 +192,16 @@ impl Manager {
 
                     // Send exit message to main thread.
                     if exit_sender.send(pkt.header.plane_id).await.is_err() {
-                        println!("Error sending exit flag to manager...");
+                        tracing::error!("Error sending exit flag to manager...");
                     }
                 }
                 FlagState::COLLISION => {
-                    println!(
+                    tracing::error!(
                         "Something went terribly wrong, the server recieved a COLLISION packet..."
                     );
                 }
                 FlagState::WARNING => {
-                    println!(
+                    tracing::error!(
                         "Something went terribly wrong, the server recieved a WARNING packet..."
                     );
                 }
@@ -220,13 +216,13 @@ impl Manager {
                             flag: FlagState::COLLISION,
                             plane_id: 0,
                             body_size: std::mem::size_of::<u8>() as u16,
-                            seq_len: 0
+                            seq_len: 0,
                         };
                         let body = vec![];
                         let pkt = Packet { header, body };
 
                         if let Err(e) = serialize_packet(pkt, &mut stream) {
-                            println!("Error sending packet: {e}");
+                            tracing::error!("Error sending packet: {e}");
                             return;
                         }
                     }
@@ -242,28 +238,28 @@ impl Manager {
                 Ok(p) if p != plane_id => {
                     // Create WARNING packet.
                     let pkt = Packet {
-                            header: PacketHeader {
+                        header: PacketHeader {
                             flag: FlagState::WARNING,
                             plane_id: p,
                             body_size: 0 as u16,
-                            seq_len: 0
+                            seq_len: 0,
                         },
                         body: Vec::new(),
-                    };  
+                    };
 
                     // Send WARNING packet.
                     if let Err(e) = serialize_packet(pkt, &mut stream) {
                         tracing::error!("Error sending packet: {e}");
                         return;
                     }
-                },
+                }
                 Ok(p) if p == plane_id => {
                     // Exit if this client timed out.
                     if exit_sender.send(pkt.header.plane_id).await.is_err() {
                         tracing::error!("Error sending exit flag to manager...");
                         return;
                     }
-                },
+                }
                 Ok(_) => {}
                 Err(e) => {
                     tracing::error!("Unable to broadcast timeout warning {}", e);
@@ -317,11 +313,12 @@ impl Manager {
     async fn process_all_data(
         coordinates: &Coordinates,
         col_sender: &Arc<Mutex<broadcast::Sender<u8>>>,
-        ) {
-        let mut sender = col_sender.lock().await;
+    ) {
+        let sender = col_sender.lock().await;
         let data = coordinates.lock().await;
         tracing::info!("--- Processing all client data ---");
-        let latest_coords: Vec<(Vector3, Vector3)> = data.values()
+        let latest_coords: Vec<(Vector3, Vector3)> = data
+            .values()
             .filter_map(|vec| {
                 if vec.len() >= 2 {
                     Some((vec[vec.len() - 2].clone(), vec.last().unwrap().clone()))
@@ -338,13 +335,14 @@ impl Manager {
                 let vec_b = plane_b.1.displacement_vector(plane_b.0, 1.0);
                 if let Some(col_point) = Vector3::intersection(plane_a.1, vec_a, plane_b.1, vec_b) {
                     if Vector3::distance(vec_a, col_point) <= danger_distance
-                        || Vector3::distance(vec_b, col_point) <= danger_distance {
+                        || Vector3::distance(vec_b, col_point) <= danger_distance
+                    {
                         if sender.send(i as u8).is_err() {
                             tracing::error!("Error sending collision flag to manager...");
                             return;
                         }
                     }
-                };  
+                };
             }
         }
     }
