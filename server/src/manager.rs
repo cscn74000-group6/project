@@ -1,5 +1,4 @@
 use crate::state_machine::{State, StateMachine};
-use core::error;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
@@ -30,6 +29,7 @@ impl Manager {
 
     /// Main logic loop of the manager class
     pub async fn run(self) -> Result<(), std::io::Error> {
+        // Listen into port 8001 on localhost
         let listener = TcpListener::bind("127.0.0.1:8001").await?;
         let (col_sender, _) = broadcast::channel::<u8>(100);
         let (warn_sender, _) = broadcast::channel::<u8>(100);
@@ -96,16 +96,23 @@ impl Manager {
         mut warn_receiver: broadcast::Receiver<u8>,
     ) {
         let plane_id = match deserialize_packet(&mut stream).await {
-            Ok(p) => p.header.plane_id,
+            Ok(p) => {
+                tracing::info!("Deserialized packet: {p}");
+                p.header.plane_id
+            }
             Err(e) => {
                 tracing::error!("Error deserializing packet: {e}");
                 return;
             }
         };
+
         loop {
             // Read packet from stream.
             let pkt = match timeout(Duration::from_secs(5), deserialize_packet(&mut stream)).await {
-                Ok(Ok(p)) => p,
+                Ok(Ok(p)) => {
+                    tracing::info!("Deserialized packet: {p}");
+                    p
+                }
                 Ok(Err(e)) => {
                     tracing::error!("Error deserializing packet: {e}");
                     return;
@@ -123,6 +130,7 @@ impl Manager {
             //packet handler
             match pkt.header.flag {
                 FlagState::COORDINATE => {
+                    tracing::info!("Packet is COORDINATE");
                     // Read coordinates from packet body.
                     let new_coord: Vector3 = match Vector3::from_bytes(pkt.body.as_slice()) {
                         Some(c) => c,
@@ -147,6 +155,7 @@ impl Manager {
                 }
                 FlagState::EXIT => {
                     //TODO: Handle massive load from client :weary:
+                    tracing::info!("Packet is EXIT");
                     let mut file =
                         File::create(format!("plane_{}.txt", pkt.header.plane_id)).unwrap();
 
@@ -159,7 +168,10 @@ impl Manager {
 
                     loop {
                         let pkt: Packet = match deserialize_packet(&mut stream).await {
-                            Ok(p) => p,
+                            Ok(p) => {
+                                tracing::info!("Deserialized packet: {p}");
+                                p
+                            }
                             Err(e) => {
                                 tracing::error!("Error deserializing exit packet: {e}");
                                 return;
