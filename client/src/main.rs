@@ -92,12 +92,13 @@ async fn main() {
             }
             Ok(Err(e)) => {
                 tracing::error!("Error deserializing COLLISION packet: {e}");
+                return;
             }
             _ => {}
         };
 
         //wait for 5 seconds
-        let ten_millis = time::Duration::from_secs(5);
+        let ten_millis = time::Duration::from_secs(3);
         thread::sleep(ten_millis);
     }
 
