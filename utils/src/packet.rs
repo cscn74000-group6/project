@@ -90,6 +90,7 @@ impl PacketHeader {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Packet {
     pub header: PacketHeader,
     pub body: Vec<u8>,
@@ -206,8 +207,114 @@ mod tests {
 
         assert_eq!(expected, actual)
     }
+
+    #[test]
+    fn test_seralizePacketHeader() {
+        let expected = PacketHeader {
+            flag: FlagState::COLLISION,
+            plane_id: 2,
+            body_size: 5,
+            seq_len: 12,
+        };
+
+        let seralized = expected.seralize_packet_header();
+
+        assert_eq!(expected.flag, FlagState::init(seralized[0]));
+        assert_eq!(expected.plane_id, seralized[1]);
+        assert_eq!(
+            expected.body_size,
+            u16::from_ne_bytes([seralized[2], seralized[3]])
+        );
+        assert_eq!(expected.seq_len, seralized[4]);
+    }
+
+    #[test]
+    fn test_deseralizePacketHeader_success() {
+        let expected = PacketHeader {
+            flag: FlagState::COLLISION,
+            plane_id: 2,
+            body_size: 5,
+            seq_len: 12,
+        };
+
+        let seralized = expected.seralize_packet_header();
+
+        let actual = PacketHeader::deseralize_packet_header(&seralized);
+
+        assert_eq!(actual.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_deseralizePacketHeader_lenLower5() {
+        let expected = PacketHeader {
+            flag: FlagState::COLLISION,
+            plane_id: 2,
+            body_size: 5,
+            seq_len: 12,
+        };
+
+        let mut seralized = expected.seralize_packet_header();
+
+        seralized.pop();
+        let actual = PacketHeader::deseralize_packet_header(&seralized);
+
+        let actualErrMsg = actual.unwrap_err().to_string();
+        println!("{}", actualErrMsg);
+        assert_eq!(
+            actualErrMsg,
+            "Vector does not have enought elements for a PacketHeader"
+        );
+    }
+
+    #[test]
+    fn test_Packet_init() {
+        let actual = Packet {
+            header: PacketHeader::init(),
+            body: Vec::new(),
+        };
+
+        let expected = Packet::init();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_Packet_transmit() {
+        let actual = Packet {
+            header: PacketHeader {
+                body_size: 10,
+                flag: FlagState::COLLISION,
+                seq_len: 100,
+                plane_id: 30,
+            },
+            body: Vec::new(),
+        };
+
+        let mut stream: TcpStream;
+        serialize_packet(actual, &mut stream);
+    }
 }
 
+//#[test]
+//fn test_deseralizePacketHeader_HeaderParseErr() {
+//    let expected = PacketHeader {
+//        flag: FlagState::COLLISION,
+//        plane_id: 2,
+//        body_size: 5,
+//        seq_len: 12,
+//    };
+//
+//    let mut seralized = expected.seralize_packet_header();
+//
+//    let actual = PacketHeader::deseralize_packet_header(&seralized);
+//
+//    let actualErrMsg = actual.unwrap_err().to_string();
+//    println!("{}", actualErrMsg);
+//    assert_eq!(
+//        actualErrMsg,
+//        "Unable to parse PacketHeader fields from Vec<u8>"
+//    );
+//}
 //fn unitTest() {
 //        let bod: &[u8] = b"TRANSMISSION";
 //    let send_pkt: Packet = Packet {
