@@ -10,6 +10,7 @@ async fn main() {
 
     tracing_subscriber::fmt()
         .with_writer(non_blocking_appender)
+        .with_ansi(false)
         .init();
 
     // Initialize and run server manager.
