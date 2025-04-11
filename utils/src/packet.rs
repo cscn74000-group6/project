@@ -1,7 +1,7 @@
 use std::fmt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-
+//use tokio_stream::Stream;
 // This is an enum that designates what flags we have
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum FlagState {
@@ -103,6 +103,12 @@ impl Packet {
             body: Vec::new(),
         };
     }
+    pub fn seralize_packet_buf(&self) -> Vec<u8> {
+        let mut seralized_bytes: Vec<u8> = Vec::new();
+        seralized_bytes.extend(self.header.seralize_packet_header());
+        seralized_bytes.extend_from_slice(&self.body);
+        return seralized_bytes;
+    }
 }
 
 /// Implementing the fmt::Display trait for FlagState so that it is compatible with println!
@@ -149,10 +155,7 @@ impl fmt::Display for Packet {
 
 /// To use the vector return, just use &[variablename]
 pub async fn serialize_packet(pkt: Packet, stream: &mut TcpStream) -> Result<(), std::io::Error> {
-    let mut seralized_bytes: Vec<u8> = Vec::new();
-    seralized_bytes.extend(pkt.header.seralize_packet_header());
-    seralized_bytes.extend_from_slice(&pkt.body);
-    stream.write_all(&seralized_bytes).await
+    stream.write_all(&pkt.seralize_packet_buf()).await
 }
 
 /// Takes in the TcpStream, reads values from it, and returns a Packet deseralized.
@@ -277,24 +280,28 @@ mod tests {
 
         assert_eq!(actual, expected);
     }
-
-    #[test]
-    fn test_Packet_transmit() {
-        let actual = Packet {
-            header: PacketHeader {
-                body_size: 10,
-                flag: FlagState::COLLISION,
-                seq_len: 100,
-                plane_id: 30,
-            },
-            body: Vec::new(),
-        };
-
-        let mut stream: TcpStream;
-        serialize_packet(actual, &mut stream);
-    }
 }
 
+//#[test]
+//fn test_Packet_transmit() {
+//    let bod: &[u8] = b"TRANSMISSION";
+//    let expected = Packet {
+//        header: PacketHeader {
+//            seq_len: 1,
+//            plane_id: 1,
+//            flag: FlagState::COORDINATE,
+//            body_size: bod.len().try_into().unwrap(),
+//        },
+//        body: bod.to_vec(),
+//    };
+//
+//    println!("{}", expected);
+//    let mut stream = tokio_stream::iter(&expected.seralize_packet_buf());
+//    let actual = deserialize_packet(stream);
+//    let actualPkt = actual.unwrap();
+//
+//    assert_eq!(actualPkt, expected)
+//}
 //#[test]
 //fn test_deseralizePacketHeader_HeaderParseErr() {
 //    let expected = PacketHeader {
