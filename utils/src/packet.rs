@@ -154,7 +154,7 @@ pub fn serialize_packet(pkt: Packet, stream: &mut TcpStream) -> Result<(), std::
     seralized_bytes.extend_from_slice(&pkt.body);
     match stream.try_write(&seralized_bytes) {
         Ok(v) => {
-            println!("{v}");
+            println!("{v} bytes written");
             Ok(())
         }
         Err(e) => Err(e.into()),

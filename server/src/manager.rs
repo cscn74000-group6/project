@@ -127,6 +127,11 @@ impl Manager {
                 }
             };
 
+            println!(
+                "Packet: {}\nID: {}\nFlag: {}\n",
+                pkt, pkt.header.plane_id, pkt.header.flag
+            );
+
             //packet handler
             match pkt.header.flag {
                 FlagState::COORDINATE => {
