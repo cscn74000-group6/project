@@ -35,8 +35,7 @@ async fn main() {
         .with_ansi(false)
         .init();
 
-    //enter flight loop
-    //loop {
+    // Connect to server
     tracing::info!("Connecting to server...");
     let mut stream = match TcpStream::connect("127.0.0.1:8001").await {
         Ok(listener) => listener,
@@ -47,14 +46,28 @@ async fn main() {
     };
     tracing::info!("Connected to server!");
 
+    // Send empty packet with plane id
+    let mut pkt = Packet::init();
+    pkt.header = PacketHeader {
+        flag: FlagState::COORDINATE,
+        body_size: 0,
+        plane_id: client_id,
+        seq_len: 0,
+    };
+    // Serialize and send packet
+    if let Err(e) = serialize_packet(pkt, &mut stream).await {
+        tracing::error!("Error sending packet: {e}");
+        return;
+    }
+
     loop {
         //move aircraft
         plane_pos = plane_pos.add(plane_pos.displacement_vector(end_pos, plane_speed));
         tracing::info!("{client_id} moved to {plane_pos}");
 
         // if distance to destination is less than A VALUE (idk what) (probably unhardcode this)
-        if Vector3::distance(plane_pos, end_pos) <= 0.5 {
-            tracing::error!("close");
+        if Vector3::distance(plane_pos, end_pos) <= 1.0 {
+            tracing::error!("Landing now, close to destination");
             break;
         }
 
@@ -69,7 +82,7 @@ async fn main() {
         let pkt = Packet { header, body };
 
         // Serialize and send packet
-        if let Err(e) = serialize_packet(pkt, &mut stream) {
+        if let Err(e) = serialize_packet(pkt, &mut stream).await {
             tracing::error!("Error sending packet: {e}");
             return;
         }
@@ -98,14 +111,14 @@ async fn main() {
         };
 
         //wait for 5 seconds
-        let ten_millis = time::Duration::from_secs(3);
+        let ten_millis = time::Duration::from_secs(1);
         thread::sleep(ten_millis);
     }
 
     //send big data
     tracing::info!("Flight Done, sending big packet...");
 
-    let mut file = File::open("test.txt").unwrap();
+    let mut file = File::open("plane_3.txt").unwrap();
     let mut buf = Vec::new();
 
     match file.read_to_end(&mut buf) {
@@ -149,7 +162,7 @@ async fn main() {
         };
 
         // Serialize and send packet
-        if let Err(e) = serialize_packet(final_pkt, &mut stream) {
+        if let Err(e) = serialize_packet(final_pkt, &mut stream).await {
             tracing::error!("Error sending packet: {e}");
             return;
         }

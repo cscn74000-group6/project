@@ -93,7 +93,7 @@ impl Manager {
     ) {
         let plane_id = match deserialize_packet(&mut stream).await {
             Ok(p) => {
-                tracing::info!("Deserialized packet: {p}");
+                tracing::info!("Received ID: {p}");
                 p.header.plane_id
             }
             Err(e) => {
@@ -103,10 +103,11 @@ impl Manager {
         };
 
         loop {
+            tracing::info!("Waiting for next packet from client...");
             // Read packet from stream.
             let pkt = match timeout(Duration::from_secs(5), deserialize_packet(&mut stream)).await {
                 Ok(Ok(p)) => {
-                    tracing::info!("Deserialized packet: {p}");
+                    tracing::info!("Received packet: {p}");
                     p
                 }
                 Ok(Err(e)) => {
@@ -123,12 +124,12 @@ impl Manager {
                 }
             };
 
-            println!("Packet: {}", pkt);
+            println!("Received packet: {}", pkt);
 
             //packet handler
             match pkt.header.flag {
                 FlagState::COORDINATE => {
-                    tracing::info!("Packet is COORDINATE");
+                    // tracing::info!("Packet is COORDINATE");
                     // Read coordinates from packet body.
                     let new_coord: Vector3 = match Vector3::from_bytes(pkt.body.as_slice()) {
                         Some(c) => c,
@@ -141,6 +142,7 @@ impl Manager {
                             return;
                         }
                     };
+                    tracing::info!("Client {}: {}", pkt.header.plane_id, new_coord);
 
                     // Acquire lock, push new coordinate to shared HashMap.
                     {
@@ -153,7 +155,7 @@ impl Manager {
                 }
                 FlagState::EXIT => {
                     //TODO: Handle massive load from client :weary:
-                    tracing::info!("Packet is EXIT");
+                    // tracing::info!("Packet is EXIT");
                     let mut file =
                         File::create(format!("plane_{}.txt", pkt.header.plane_id)).unwrap();
 
@@ -214,7 +216,7 @@ impl Manager {
 
             // Check for collision warnings.
             // Send collision packet to affected clients.
-            match col_receiver.recv().await {
+            match col_receiver.try_recv() {
                 Ok(col_alert) => {
                     if col_alert.0 == pkt.header.plane_id {
                         let header = PacketHeader {
@@ -227,12 +229,13 @@ impl Manager {
                         let body = new_altitude.to_bytes();
                         let pkt = Packet { header, body };
 
-                        if let Err(e) = serialize_packet(pkt, &mut stream) {
+                        if let Err(e) = serialize_packet(pkt, &mut stream).await {
                             tracing::error!("Error sending packet: {e}");
                             return;
                         }
                     }
                 }
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {}
                 Err(_) => {
                     tracing::error!("Error reading warning from mananger...");
                     return;
@@ -240,7 +243,7 @@ impl Manager {
             };
 
             // Check for timeout warnings.
-            match warn_receiver.recv().await {
+            match warn_receiver.try_recv() {
                 Ok(p) if p != plane_id => {
                     // Create WARNING packet.
                     let pkt = Packet {
@@ -254,7 +257,7 @@ impl Manager {
                     };
 
                     // Send WARNING packet.
-                    if let Err(e) = serialize_packet(pkt, &mut stream) {
+                    if let Err(e) = serialize_packet(pkt, &mut stream).await {
                         tracing::error!("Error sending packet: {e}");
                         return;
                     }
@@ -267,6 +270,7 @@ impl Manager {
                     }
                 }
                 Ok(_) => {}
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {}
                 Err(e) => {
                     tracing::error!("Unable to broadcast timeout warning {}", e);
                 }
@@ -338,7 +342,7 @@ impl Manager {
         // Check potential collisions with each plane
         for (i, plane_a) in recent_coords.iter().enumerate() {
             for (j, plane_b) in recent_coords.iter().enumerate() {
-                if i >= j {
+                if i == j {
                     continue;
                 }
 
