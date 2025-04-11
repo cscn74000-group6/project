@@ -34,7 +34,6 @@ impl Manager {
         let (col_sender, _) = broadcast::channel::<(u8, f32)>(100);
         let (warn_sender, _) = broadcast::channel::<u8>(100);
         let (exit_sender, mut exit_receiver) = mpsc::channel::<u8>(100);
-        let col_sender = Arc::new(Mutex::new(col_sender));
 
         // Spawn task to handle client exits.
         let coord_clone = self.coordinates.clone();
@@ -48,7 +47,7 @@ impl Manager {
 
         // Spawn task to process new data.
         let coord_clone = self.coordinates.clone();
-        let col_sender_clone = Arc::clone(&col_sender);
+        let col_sender_clone = col_sender.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
             loop {
@@ -65,10 +64,7 @@ impl Manager {
                     let (stream, addr) = listener.accept().await?;
                     tracing::info!("New client connected: {}", addr);
                     let coord_clone = self.coordinates.clone();
-                    let col_receiver = {
-                        let sender = col_sender.lock().await;
-                        sender.subscribe()
-                    };
+                    let col_receiver = col_sender.subscribe();
                     let exit_sender = exit_sender.clone();
                     let warn_sender = warn_sender.clone();
                     let warn_receiver = warn_sender.subscribe();
@@ -127,10 +123,7 @@ impl Manager {
                 }
             };
 
-            println!(
-                "Packet: {}\nID: {}\nFlag: {}\n",
-                pkt, pkt.header.plane_id, pkt.header.flag
-            );
+            println!("Packet: {}", pkt);
 
             //packet handler
             match pkt.header.flag {
@@ -323,11 +316,7 @@ impl Manager {
     }
 
     /// Process data.
-    async fn process_data(
-        coordinates: &Coordinates,
-        col_sender: &Arc<Mutex<broadcast::Sender<(u8, f32)>>>,
-    ) {
-        // let sender = col_sender.lock().await;
+    async fn process_data(coordinates: &Coordinates, col_sender: &broadcast::Sender<(u8, f32)>) {
         let data = coordinates.lock().await;
         if data.len() <= 0 {
             return;
@@ -368,10 +357,11 @@ impl Manager {
                 if Vector3::will_intersect_in_n_cycles(
                     *curr_a, velocity_a, *curr_b, velocity_b, max_cycles, tolerance,
                 ) {
-                    let sender = col_sender.lock().await;
                     let plane_a_alert = (i as u8, 32000.0);
                     let plane_b_alert = (j as u8, 30000.0);
-                    if sender.send(plane_a_alert).is_err() || sender.send(plane_b_alert).is_err() {
+                    if col_sender.send(plane_a_alert).is_err()
+                        || col_sender.send(plane_b_alert).is_err()
+                    {
                         tracing::error!("Error sending collision alert to threads...");
                     }
                 }
