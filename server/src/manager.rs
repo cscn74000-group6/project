@@ -118,7 +118,7 @@ impl Manager {
                     return;
                 }
                 Err(_) => {
-                    tracing::error!("Timed out waitng for packet");
+                    tracing::error!("Timed out waiting for packet");
                     if warn_sender.send(plane_id).is_err() {
                         tracing::error!("Error sending exit flag to manager...");
                     }
@@ -225,8 +225,8 @@ impl Manager {
                             body_size: std::mem::size_of::<f32>() as u16,
                             seq_len: 0,
                         };
-                        let new_altitude = col_alert.1;
-                        let body = new_altitude.to_be_bytes().to_vec();
+                        let new_altitude = Vector3::new(0.0, 0.0, col_alert.1);
+                        let body = new_altitude.to_bytes();
                         let pkt = Packet { header, body };
 
                         if let Err(e) = serialize_packet(pkt, &mut stream) {
