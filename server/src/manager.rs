@@ -226,8 +226,8 @@ impl Manager {
                     if col_alert.0 == pkt.header.plane_id {
                         let header = PacketHeader {
                             flag: FlagState::COLLISION,
-                            plane_id: 0,
-                            body_size: std::mem::size_of::<f32>() as u16,
+                            plane_id,
+                            body_size: std::mem::size_of::<Vector3>() as u16,
                             seq_len: 0,
                         };
                         let new_altitude = Vector3::new(0.0, 0.0, col_alert.1);
