@@ -46,11 +46,30 @@ impl Vector3 {
         Vector3::new(vel_x, vel_y, vel_z)
     }
 
+    pub fn will_intersect_in_n_cycles(
+        mut a: Vector3,
+        a_vel: Vector3,
+        mut b: Vector3,
+        b_vel: Vector3,
+        max_cycles: u32,
+        tolerance: f32,
+    ) -> bool {
+        for _ in 1..=max_cycles {
+            a = a.add(a_vel);
+            b = b.add(b_vel);
+
+            if Vector3::distance(a, b) < tolerance {
+                return true;
+            }
+        }
+        false
+    }
+
     ///Calculate if there is intersection between two points.
     pub fn intersection(p1: Vector3, d1: Vector3, p2: Vector3, d2: Vector3) -> Option<Vector3> {
         let det = d1.x * d2.y - d1.y * d2.x;
         if det.abs() < f32::EPSILON {
-            return None; // Lines are parallel or coincident
+            return None;
         }
 
         let dx = p2.x - p1.x;
@@ -62,7 +81,11 @@ impl Vector3 {
         let ix = p1.x + t * d1.x;
         let iy = p1.y + t * d1.y;
 
-        Some(Vector3 { x: ix, y: iy, z: 0.0 }) // Z is irrelevant
+        Some(Vector3 {
+            x: ix,
+            y: iy,
+            z: 0.0,
+        })
     }
 
     ///Convert Vector3 to a vector of u8.

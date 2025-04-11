@@ -31,7 +31,7 @@ impl Manager {
     pub async fn run(self) -> Result<(), std::io::Error> {
         // Listen into port 8001 on localhost
         let listener = TcpListener::bind("127.0.0.1:8001").await?;
-        let (col_sender, _) = broadcast::channel::<u8>(100);
+        let (col_sender, _) = broadcast::channel::<(u8, f32)>(100);
         let (warn_sender, _) = broadcast::channel::<u8>(100);
         let (exit_sender, mut exit_receiver) = mpsc::channel::<u8>(100);
         let col_sender = Arc::new(Mutex::new(col_sender));
@@ -50,10 +50,10 @@ impl Manager {
         let coord_clone = self.coordinates.clone();
         let col_sender_clone = Arc::clone(&col_sender);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
             loop {
                 interval.tick().await;
-                Self::process_all_data(&coord_clone, &col_sender_clone).await;
+                Self::process_data(&coord_clone, &col_sender_clone).await;
             }
         });
 
@@ -90,7 +90,7 @@ impl Manager {
     pub async fn handle_client(
         mut stream: TcpStream,
         coordinates: Coordinates,
-        mut col_receiver: broadcast::Receiver<u8>,
+        mut col_receiver: broadcast::Receiver<(u8, f32)>,
         exit_sender: mpsc::Sender<u8>,
         warn_sender: broadcast::Sender<u8>,
         mut warn_receiver: broadcast::Receiver<u8>,
@@ -207,30 +207,26 @@ impl Manager {
                         tracing::error!("Error sending exit flag to manager...");
                     }
                 }
-                FlagState::COLLISION => {
+                _ => {
                     tracing::error!(
                         "Something went terribly wrong, the server recieved a COLLISION packet..."
                     );
                 }
-                FlagState::WARNING => {
-                    tracing::error!(
-                        "Something went terribly wrong, the server recieved a WARNING packet..."
-                    );
-                }
             }
 
-            // Check for collision warnings. Send collision packet to client if client for this
-            // plane is created.
+            // Check for collision warnings.
+            // Send collision packet to affected clients.
             match col_receiver.recv().await {
-                Ok(warning) => {
-                    if warning == pkt.header.plane_id {
+                Ok(col_alert) => {
+                    if col_alert.0 == pkt.header.plane_id {
                         let header = PacketHeader {
                             flag: FlagState::COLLISION,
                             plane_id: 0,
-                            body_size: std::mem::size_of::<u8>() as u16,
+                            body_size: std::mem::size_of::<f32>() as u16,
                             seq_len: 0,
                         };
-                        let body = vec![];
+                        let new_altitude = col_alert.1;
+                        let body = new_altitude.to_be_bytes().to_vec();
                         let pkt = Packet { header, body };
 
                         if let Err(e) = serialize_packet(pkt, &mut stream) {
@@ -322,39 +318,59 @@ impl Manager {
     }
 
     /// Process data.
-    async fn process_all_data(
+    async fn process_data(
         coordinates: &Coordinates,
-        col_sender: &Arc<Mutex<broadcast::Sender<u8>>>,
+        col_sender: &Arc<Mutex<broadcast::Sender<(u8, f32)>>>,
     ) {
-        let sender = col_sender.lock().await;
+        // let sender = col_sender.lock().await;
         let data = coordinates.lock().await;
+        if data.len() <= 0 {
+            return;
+        }
+
         tracing::info!("--- Processing all client data ---");
-        let latest_coords: Vec<(Vector3, Vector3)> = data
+        let recent_coords: Vec<(Vector3, Vector3)> = data
             .values()
             .filter_map(|vec| {
                 if vec.len() >= 2 {
-                    Some((vec[vec.len() - 2].clone(), vec.last().unwrap().clone()))
+                    let last_coord = vec[vec.len() - 2].clone();
+                    let current_coord = vec.last().unwrap().clone();
+                    Some((last_coord, current_coord))
                 } else {
                     None
                 }
             })
             .collect();
 
-        let danger_distance = 10.0;
-        for (i, &plane_a) in latest_coords.iter().enumerate() {
-            for &plane_b in &latest_coords[i + 1..] {
-                let vec_a = plane_a.1.displacement_vector(plane_a.0, 1.0);
-                let vec_b = plane_b.1.displacement_vector(plane_b.0, 1.0);
-                if let Some(col_point) = Vector3::intersection(plane_a.1, vec_a, plane_b.1, vec_b) {
-                    if Vector3::distance(vec_a, col_point) <= danger_distance
-                        || Vector3::distance(vec_b, col_point) <= danger_distance
-                    {
-                        if sender.send(i as u8).is_err() {
-                            tracing::error!("Error sending collision flag to manager...");
-                            return;
-                        }
+        // Check potential collisions with each plane
+        for (i, plane_a) in recent_coords.iter().enumerate() {
+            for (j, plane_b) in recent_coords.iter().enumerate() {
+                if i >= j {
+                    continue;
+                }
+
+                let (prev_a, curr_a) = plane_a;
+                let (prev_b, curr_b) = plane_b;
+
+                let speed_a = Vector3::distance(*prev_a, *curr_a);
+                let speed_b = Vector3::distance(*prev_b, *curr_b);
+
+                let velocity_a = prev_a.displacement_vector(*curr_a, speed_a);
+                let velocity_b = prev_b.displacement_vector(*curr_b, speed_b);
+
+                // Send collision warnings if there will be a future collision.
+                let max_cycles = 3;
+                let tolerance = 2.0;
+                if Vector3::will_intersect_in_n_cycles(
+                    *curr_a, velocity_a, *curr_b, velocity_b, max_cycles, tolerance,
+                ) {
+                    let sender = col_sender.lock().await;
+                    let plane_a_alert = (i as u8, 32000.0);
+                    let plane_b_alert = (j as u8, 30000.0);
+                    if sender.send(plane_a_alert).is_err() || sender.send(plane_b_alert).is_err() {
+                        tracing::error!("Error sending collision alert to threads...");
                     }
-                };
+                }
             }
         }
     }
