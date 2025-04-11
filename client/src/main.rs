@@ -3,7 +3,8 @@ use std::fs::File;
 use std::io::Read;
 use std::{thread, time};
 use tokio::net::TcpStream;
-use utils::packet::{FlagState, Packet, PacketHeader, serialize_packet};
+use tokio::time::{Duration, timeout};
+use utils::packet::{FlagState, Packet, PacketHeader, deserialize_packet, serialize_packet};
 use utils::vector::Vector3;
 
 #[tokio::main]
@@ -31,6 +32,7 @@ async fn main() {
 
     tracing_subscriber::fmt()
         .with_writer(non_blocking_appender)
+        .with_ansi(false)
         .init();
 
     //enter flight loop
@@ -51,7 +53,7 @@ async fn main() {
         tracing::info!("{client_id} moved to {plane_pos}");
 
         // if distance to destination is less than A VALUE (idk what) (probably unhardcode this)
-        if Vector3::distance(plane_pos, end_pos) < 1.0 {
+        if Vector3::distance(plane_pos, end_pos) <= 0.5 {
             tracing::error!("close");
             break;
         }
@@ -74,6 +76,22 @@ async fn main() {
 
         //send data
         tracing::info!("Packet sent...");
+
+        // Check for collision warning, set altitude accordingly.
+        match timeout(Duration::from_secs(1), deserialize_packet(&mut stream)).await {
+            Ok(Ok(p)) => {
+                tracing::info!("Deserialized packet: {p}");
+                if p.header.flag == FlagState::COLLISION {
+                    if let Some(new_altitude) = Vector3::from_bytes(p.body.as_slice()) {
+                        plane_pos.z = new_altitude.z;
+                        tracing::info!("Set altitude to: {}", new_altitude.z);
+                    } else {
+                        tracing::error!("Unable to create Vector3 from bytes...")
+                    }
+                }
+            }
+            _ => {}
+        };
 
         //wait for 5 seconds
         let ten_millis = time::Duration::from_secs(5);
@@ -141,28 +159,4 @@ async fn main() {
     //wait for 5 seconds
     let ten_millis = time::Duration::from_secs(5);
     thread::sleep(ten_millis);
-    // TCP DEMO CODE
-    // use tokio::io::AsyncWriteExt;
-    // use tokio::net::TcpStream;
-
-    // #[tokio::main]
-    // async fn main() {
-    //     loop {
-    //         match TcpStream::connect("127.0.0.1:8001").await {
-    //             Ok(mut stream) => {
-    //                 println!("Successfully connected to server");
-    //                 match stream.write_u8(42).await {
-    //                     Ok(_) => {
-    //                         println!("Successfully sent data");
-    //                     }
-    //                     Err(e) => {
-    //                         println!("Failed to write to server: {e}");
-    //                     }
-    //                 }
-    //             }
-    //             Err(e) => {
-    //                 println!("Failed to connect to server: {e}");
-    //             }
-    //         }
-    //     }
 }
