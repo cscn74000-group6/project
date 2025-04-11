@@ -90,6 +90,9 @@ async fn main() {
                     }
                 }
             }
+            Ok(Err(e)) => {
+                tracing::error!("Error deserializing COLLISION packet: {e}");
+            }
             _ => {}
         };
 
