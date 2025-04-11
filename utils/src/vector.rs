@@ -65,29 +65,6 @@ impl Vector3 {
         false
     }
 
-    ///Calculate if there is intersection between two points.
-    pub fn intersection(p1: Vector3, d1: Vector3, p2: Vector3, d2: Vector3) -> Option<Vector3> {
-        let det = d1.x * d2.y - d1.y * d2.x;
-        if det.abs() < f32::EPSILON {
-            return None;
-        }
-
-        let dx = p2.x - p1.x;
-        let dy = p2.y - p1.y;
-
-        let t = (dx * d2.y - dy * d2.x) / det;
-
-        // Compute intersection point using parameter t
-        let ix = p1.x + t * d1.x;
-        let iy = p1.y + t * d1.y;
-
-        Some(Vector3 {
-            x: ix,
-            y: iy,
-            z: 0.0,
-        })
-    }
-
     ///Convert Vector3 to a vector of u8.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
@@ -194,6 +171,16 @@ mod tests {
         let actual = Vector3::from_bytes(&expected.to_bytes());
 
         assert_eq!(expected, actual.expect("FAIL!!"));
+    }
+
+    #[test]
+    fn test_from_bytes_fail() {
+        let expected = Vector3::new(1.0, 2.0, 3.0);
+        let mut expect = expected.to_bytes();
+        expect.pop();
+        let actual = Vector3::from_bytes(&expect);
+
+        assert_eq!(None, actual);
     }
 
     #[test]
