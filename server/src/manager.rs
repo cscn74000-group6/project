@@ -328,7 +328,6 @@ impl Manager {
             return;
         }
 
-        tracing::info!("--- Processing all client data ---");
         let recent_coords: Vec<(Vector3, Vector3)> = data
             .values()
             .filter_map(|vec| {
