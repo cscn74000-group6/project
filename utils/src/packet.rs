@@ -90,6 +90,10 @@ impl PacketHeader {
     }
 }
 
+pub fn get_packet_header_size() -> usize {
+    return 5;
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Packet {
     pub header: PacketHeader,
@@ -136,8 +140,8 @@ impl fmt::Display for PacketHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "[{0}, {1}, {2}]",
-            self.flag, self.plane_id, self.body_size
+            "[{0}, {1}, {2}, {3}]",
+            self.flag, self.plane_id, self.body_size, self.seq_len
         )
     }
 }
@@ -161,7 +165,7 @@ pub async fn serialize_packet(pkt: Packet, stream: &mut TcpStream) -> Result<(),
 /// Takes in the TcpStream, reads values from it, and returns a Packet deseralized.
 /// The logic works, except for the TcpStream which is still untested.
 pub async fn deserialize_packet(stream: &mut TcpStream) -> Result<Packet, std::io::Error> {
-    let mut rcv_buf_header: Vec<u8> = vec![0; 5];
+    let mut rcv_buf_header: Vec<u8> = vec![0; get_packet_header_size()];
     let mut pkt: Packet = Packet::init();
     stream.read_exact(&mut rcv_buf_header).await?;
 
@@ -279,6 +283,76 @@ mod tests {
         let expected = Packet::init();
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_Packet_seralize() {
+        let bod: &[u8] = b"TRANSMISSION";
+        let expected = Packet {
+            header: PacketHeader {
+                seq_len: 1,
+                plane_id: 1,
+                flag: FlagState::COORDINATE,
+                body_size: bod.len().try_into().unwrap(),
+            },
+            body: bod.to_vec(),
+        };
+
+        println!("{}", expected);
+        let actual = expected.seralize_packet_buf();
+
+        assert_ne!(actual.len(), 0);
+    }
+
+    #[test]
+    fn test_PackerHeader_Size() {
+        assert_eq!(get_packet_header_size(), 5);
+    }
+
+    #[test]
+    fn test_PacketHeader_fmt() {
+        let header = PacketHeader {
+            seq_len: 1,
+            plane_id: 1,
+            flag: FlagState::COORDINATE,
+            body_size: 10,
+        };
+
+        let expected = format!(
+            "[{0}, {1}, {2}, {3}]",
+            header.flag, header.plane_id, header.body_size, header.seq_len
+        );
+
+        assert_eq!(format!("{}", header), expected);
+    }
+
+    #[test]
+    fn test_FlagState_fmt() {
+        assert_eq!(format!("{}", FlagState::EXIT), "EXIT");
+        assert_eq!(format!("{}", FlagState::COLLISION), "COLLISION");
+        assert_eq!(format!("{}", FlagState::COORDINATE), "COORDINATE");
+        assert_eq!(format!("{}", FlagState::WARNING), "WARNING");
+    }
+
+    #[test]
+    fn test_Packet_fmt() {
+        let bod: &[u8] = b"TRANSMISSION";
+        let expectedPkt = Packet {
+            header: PacketHeader {
+                seq_len: 1,
+                plane_id: 1,
+                flag: FlagState::COORDINATE,
+                body_size: bod.len().try_into().unwrap(),
+            },
+            body: bod.to_vec(),
+        };
+        let actual = format!("{}", expectedPkt);
+        let expected = format!(
+            "{0}\n{1}",
+            expectedPkt.header,
+            String::from_utf8(bod.to_vec()).unwrap()
+        );
+        assert_eq!(expected, actual)
     }
 }
 
