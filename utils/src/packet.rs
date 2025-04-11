@@ -29,7 +29,7 @@ impl FlagState {
 }
 
 // Struct for the Header in a packet
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PacketHeader {
     pub flag: FlagState,
     pub plane_id: u8,
@@ -173,6 +173,39 @@ pub async fn deserialize_packet(stream: &mut TcpStream) -> Result<Packet, std::i
     pkt.body = rcv_buf;
 
     Ok(pkt)
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_FlagState_init() {
+        let warning = FlagState::init(0);
+        let collision = FlagState::init(1);
+        let coordinate = FlagState::init(2);
+        let exit = FlagState::init(3);
+        let error = FlagState::init(4);
+        assert_eq!(warning, FlagState::WARNING);
+        assert_eq!(collision, FlagState::COLLISION);
+        assert_eq!(coordinate, FlagState::COORDINATE);
+        assert_eq!(exit, FlagState::EXIT);
+        assert_eq!(error, FlagState::WARNING);
+    }
+
+    #[test]
+    fn test_PacketHeader_init() {
+        let expected = PacketHeader {
+            flag: FlagState::WARNING,
+            plane_id: 0,
+            body_size: 0,
+            seq_len: 0,
+        };
+        let actual = PacketHeader::init();
+
+        assert_eq!(expected, actual)
+    }
 }
 
 //fn unitTest() {
