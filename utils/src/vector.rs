@@ -1,6 +1,6 @@
 use core::fmt;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Vector3 {
     pub x: f32,
     pub y: f32,
@@ -185,5 +185,48 @@ mod tests {
         assert_eq!(out.x, 1.7407765);
         assert_eq!(out.y, 1.7407765);
         assert_eq!(out.z, 4.351941);
+    }
+
+    #[test]
+    fn test_byte_conversion() {
+        let expected = Vector3::new(1.0, 2.0, 3.0);
+
+        let actual = Vector3::from_bytes(&expected.to_bytes());
+
+        assert_eq!(expected, actual.expect("FAIL!!"));
+    }
+
+    #[test]
+    fn test_print() {
+        let actual_vec = Vector3::new(1.0, 2.0, 3.0);
+        let actual = format!("[{},{},{}]", actual_vec.x, actual_vec.y, actual_vec.z);
+        let expected = format!("{}", actual_vec);
+        assert_eq!(actual, expected)
+    }
+
+    #[test]
+    fn test_will_intersect_true() {
+        let position_a = Vector3::new(5.0, 1.0, 1.0);
+        let a_vel = Vector3::new(-1.0, 1.0, 1.0);
+        let position_b = Vector3::new(-5.0, 1.0, 1.0);
+        let b_vel = Vector3::new(1.0, 1.0, 1.0);
+        let max_cycles = 10;
+        let tolerance = 0.1;
+        assert!(Vector3::will_intersect_in_n_cycles(
+            position_a, a_vel, position_b, b_vel, max_cycles, tolerance
+        ))
+    }
+
+    #[test]
+    fn test_will_intersect_false() {
+        let position_a = Vector3::new(1.0, 1.0, 1.0);
+        let a_vel = Vector3::new(1.0, 1.0, 1.0);
+        let position_b = Vector3::new(1.0, 3.0, 1.0);
+        let b_vel = Vector3::new(1.0, 1.0, 1.0);
+        let max_cycles = 10;
+        let tolerance = 0.1;
+        assert!(!Vector3::will_intersect_in_n_cycles(
+            position_a, a_vel, position_b, b_vel, max_cycles, tolerance
+        ))
     }
 }
