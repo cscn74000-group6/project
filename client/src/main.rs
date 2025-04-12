@@ -67,7 +67,7 @@ async fn main() {
 
         // if distance to destination is less than A VALUE (idk what) (probably unhardcode this)
         if Vector3::distance(plane_pos, end_pos) <= 1.0 {
-            tracing::error!("Landing now, close to destination");
+            tracing::info!("Landing now, close to destination");
             break;
         }
 
