@@ -13,9 +13,7 @@ impl StateMachine {
     /// Initialize state machine.
     /// Default state is State::OPEN.
     pub fn new() -> StateMachine {
-        StateMachine{
-            state: State::OPEN
-        }
+        StateMachine { state: State::OPEN }
     }
 
     /// Set state to State::OPEN.
@@ -33,7 +31,7 @@ impl StateMachine {
     pub fn get_state(&self) -> State {
         match self.state {
             State::OPEN => State::OPEN,
-            State::CLOSED => State::CLOSED
+            State::CLOSED => State::CLOSED,
         }
     }
 }

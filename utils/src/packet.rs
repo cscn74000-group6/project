@@ -1,7 +1,7 @@
 use std::fmt;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-
+//use tokio_stream::Stream;
 // This is an enum that designates what flags we have
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum FlagState {
@@ -29,7 +29,7 @@ impl FlagState {
 }
 
 // Struct for the Header in a packet
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PacketHeader {
     pub flag: FlagState,
     pub plane_id: u8,
@@ -51,7 +51,6 @@ impl PacketHeader {
     /// Deseralize_packet_header() takes in a u8 slice and returns an unpacked PacketHeader. The
     /// function deseralizes in the same way the serialize_packet_header works.
     pub fn deseralize_packet_header(stream: &[u8]) -> Result<PacketHeader, std::io::Error> {
-        // if stream.len() < std::mem::size_of::<PacketHeader>() {
         if stream.len() < 5 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -91,6 +90,11 @@ impl PacketHeader {
     }
 }
 
+pub fn get_packet_header_size() -> usize {
+    return 5;
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Packet {
     pub header: PacketHeader,
     pub body: Vec<u8>,
@@ -102,6 +106,12 @@ impl Packet {
             header: PacketHeader::init(),
             body: Vec::new(),
         };
+    }
+    pub fn seralize_packet_buf(&self) -> Vec<u8> {
+        let mut seralized_bytes: Vec<u8> = Vec::new();
+        seralized_bytes.extend(self.header.seralize_packet_header());
+        seralized_bytes.extend_from_slice(&self.body);
+        return seralized_bytes;
     }
 }
 
@@ -130,8 +140,8 @@ impl fmt::Display for PacketHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "[{0}, {1}, {2}]",
-            self.flag, self.plane_id, self.body_size
+            "[{0}, {1}, {2}, {3}]",
+            self.flag, self.plane_id, self.body_size, self.seq_len
         )
     }
 }
@@ -148,26 +158,15 @@ impl fmt::Display for Packet {
 }
 
 /// To use the vector return, just use &[variablename]
-pub fn serialize_packet(pkt: Packet, stream: &mut TcpStream) -> Result<(), std::io::Error> {
-    let mut seralized_bytes: Vec<u8> = Vec::new();
-    seralized_bytes.extend(pkt.header.seralize_packet_header());
-    seralized_bytes.extend_from_slice(&pkt.body);
-    match stream.try_write(&seralized_bytes) {
-        Ok(v) => {
-            println!("{v}");
-            Ok(())
-        }
-        Err(e) => Err(e.into()),
-    }
+pub async fn serialize_packet(pkt: Packet, stream: &mut TcpStream) -> Result<(), std::io::Error> {
+    stream.write_all(&pkt.seralize_packet_buf()).await
 }
 
 /// Takes in the TcpStream, reads values from it, and returns a Packet deseralized.
 /// The logic works, except for the TcpStream which is still untested.
 pub async fn deserialize_packet(stream: &mut TcpStream) -> Result<Packet, std::io::Error> {
-    // let mut rcv_buf_header: Vec<u8> = vec![0; std::mem::size_of::<PacketHeader>()];
-    let mut rcv_buf_header: Vec<u8> = vec![0; 5];
+    let mut rcv_buf_header: Vec<u8> = vec![0; get_packet_header_size()];
     let mut pkt: Packet = Packet::init();
-    // Read the data from the buffer
     stream.read_exact(&mut rcv_buf_header).await?;
 
     pkt.header = match PacketHeader::deseralize_packet_header(&rcv_buf_header) {
@@ -184,6 +183,219 @@ pub async fn deserialize_packet(stream: &mut TcpStream) -> Result<Packet, std::i
     Ok(pkt)
 }
 
+#[cfg(test)]
+#[allow(non_snake_case)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_FlagState_init() {
+        let warning = FlagState::init(0);
+        let collision = FlagState::init(1);
+        let coordinate = FlagState::init(2);
+        let exit = FlagState::init(3);
+        let error = FlagState::init(4);
+        assert_eq!(warning, FlagState::WARNING);
+        assert_eq!(collision, FlagState::COLLISION);
+        assert_eq!(coordinate, FlagState::COORDINATE);
+        assert_eq!(exit, FlagState::EXIT);
+        assert_eq!(error, FlagState::WARNING);
+    }
+
+    #[test]
+    fn test_PacketHeader_init() {
+        let expected = PacketHeader {
+            flag: FlagState::WARNING,
+            plane_id: 0,
+            body_size: 0,
+            seq_len: 0,
+        };
+        let actual = PacketHeader::init();
+
+        assert_eq!(expected, actual)
+    }
+
+    #[test]
+    fn test_seralizePacketHeader() {
+        let expected = PacketHeader {
+            flag: FlagState::COLLISION,
+            plane_id: 2,
+            body_size: 5,
+            seq_len: 12,
+        };
+
+        let seralized = expected.seralize_packet_header();
+
+        assert_eq!(expected.flag, FlagState::init(seralized[0]));
+        assert_eq!(expected.plane_id, seralized[1]);
+        assert_eq!(
+            expected.body_size,
+            u16::from_ne_bytes([seralized[2], seralized[3]])
+        );
+        assert_eq!(expected.seq_len, seralized[4]);
+    }
+
+    #[test]
+    fn test_deseralizePacketHeader_success() {
+        let expected = PacketHeader {
+            flag: FlagState::COLLISION,
+            plane_id: 2,
+            body_size: 5,
+            seq_len: 12,
+        };
+
+        let seralized = expected.seralize_packet_header();
+
+        let actual = PacketHeader::deseralize_packet_header(&seralized);
+
+        assert_eq!(actual.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_deseralizePacketHeader_lenLower5() {
+        let expected = PacketHeader {
+            flag: FlagState::COLLISION,
+            plane_id: 2,
+            body_size: 5,
+            seq_len: 12,
+        };
+
+        let mut seralized = expected.seralize_packet_header();
+
+        seralized.pop();
+        let actual = PacketHeader::deseralize_packet_header(&seralized);
+
+        let actualErrMsg = actual.unwrap_err().to_string();
+        println!("{}", actualErrMsg);
+        assert_eq!(
+            actualErrMsg,
+            "Vector does not have enought elements for a PacketHeader"
+        );
+    }
+
+    #[test]
+    fn test_Packet_init() {
+        let actual = Packet {
+            header: PacketHeader::init(),
+            body: Vec::new(),
+        };
+
+        let expected = Packet::init();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_Packet_seralize() {
+        let bod: &[u8] = b"TRANSMISSION";
+        let expected = Packet {
+            header: PacketHeader {
+                seq_len: 1,
+                plane_id: 1,
+                flag: FlagState::COORDINATE,
+                body_size: bod.len().try_into().unwrap(),
+            },
+            body: bod.to_vec(),
+        };
+
+        println!("{}", expected);
+        let actual = expected.seralize_packet_buf();
+
+        assert_ne!(actual.len(), 0);
+    }
+
+    #[test]
+    fn test_PackerHeader_Size() {
+        assert_eq!(get_packet_header_size(), 5);
+    }
+
+    #[test]
+    fn test_PacketHeader_fmt() {
+        let header = PacketHeader {
+            seq_len: 1,
+            plane_id: 1,
+            flag: FlagState::COORDINATE,
+            body_size: 10,
+        };
+
+        let expected = format!(
+            "[{0}, {1}, {2}, {3}]",
+            header.flag, header.plane_id, header.body_size, header.seq_len
+        );
+
+        assert_eq!(format!("{}", header), expected);
+    }
+
+    #[test]
+    fn test_FlagState_fmt() {
+        assert_eq!(format!("{}", FlagState::EXIT), "EXIT");
+        assert_eq!(format!("{}", FlagState::COLLISION), "COLLISION");
+        assert_eq!(format!("{}", FlagState::COORDINATE), "COORDINATE");
+        assert_eq!(format!("{}", FlagState::WARNING), "WARNING");
+    }
+
+    #[test]
+    fn test_Packet_fmt() {
+        let bod: &[u8] = b"TRANSMISSION";
+        let expectedPkt = Packet {
+            header: PacketHeader {
+                seq_len: 1,
+                plane_id: 1,
+                flag: FlagState::COORDINATE,
+                body_size: bod.len().try_into().unwrap(),
+            },
+            body: bod.to_vec(),
+        };
+        let actual = format!("{}", expectedPkt);
+        let expected = format!(
+            "{0}\n{1}",
+            expectedPkt.header,
+            String::from_utf8(bod.to_vec()).unwrap()
+        );
+        assert_eq!(expected, actual)
+    }
+}
+
+//#[test]
+//fn test_Packet_transmit() {
+//    let bod: &[u8] = b"TRANSMISSION";
+//    let expected = Packet {
+//        header: PacketHeader {
+//            seq_len: 1,
+//            plane_id: 1,
+//            flag: FlagState::COORDINATE,
+//            body_size: bod.len().try_into().unwrap(),
+//        },
+//        body: bod.to_vec(),
+//    };
+//
+//    println!("{}", expected);
+//    let mut stream = tokio_stream::iter(&expected.seralize_packet_buf());
+//    let actual = deserialize_packet(stream);
+//    let actualPkt = actual.unwrap();
+//
+//    assert_eq!(actualPkt, expected)
+//}
+//#[test]
+//fn test_deseralizePacketHeader_HeaderParseErr() {
+//    let expected = PacketHeader {
+//        flag: FlagState::COLLISION,
+//        plane_id: 2,
+//        body_size: 5,
+//        seq_len: 12,
+//    };
+//
+//    let mut seralized = expected.seralize_packet_header();
+//
+//    let actual = PacketHeader::deseralize_packet_header(&seralized);
+//
+//    let actualErrMsg = actual.unwrap_err().to_string();
+//    println!("{}", actualErrMsg);
+//    assert_eq!(
+//        actualErrMsg,
+//        "Unable to parse PacketHeader fields from Vec<u8>"
+//    );
+//}
 //fn unitTest() {
 //        let bod: &[u8] = b"TRANSMISSION";
 //    let send_pkt: Packet = Packet {

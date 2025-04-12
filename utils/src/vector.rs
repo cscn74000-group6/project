@@ -1,6 +1,6 @@
 use core::fmt;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Vector3 {
     pub x: f32,
     pub y: f32,
@@ -46,23 +46,23 @@ impl Vector3 {
         Vector3::new(vel_x, vel_y, vel_z)
     }
 
-    ///Calculate if there is intersection between two points.
-    pub fn intersection(p1: Vector3, d1: Vector3, p2: Vector3, d2: Vector3) -> Option<Vector3> {
-        let det = d1.x * d2.y - d1.y * d2.x;
-        if det.abs() < f32::EPSILON {
-            return None; // Lines are parallel or coincident
+    pub fn will_intersect_in_n_cycles(
+        mut a: Vector3,
+        a_vel: Vector3,
+        mut b: Vector3,
+        b_vel: Vector3,
+        max_cycles: u32,
+        tolerance: f32,
+    ) -> bool {
+        for _ in 1..=max_cycles {
+            a = a.add(a_vel);
+            b = b.add(b_vel);
+
+            if Vector3::distance(a, b) < tolerance {
+                return true;
+            }
         }
-
-        let dx = p2.x - p1.x;
-        let dy = p2.y - p1.y;
-
-        let t = (dx * d2.y - dy * d2.x) / det;
-
-        // Compute intersection point using parameter t
-        let ix = p1.x + t * d1.x;
-        let iy = p1.y + t * d1.y;
-
-        Some(Vector3 { x: ix, y: iy, z: 0.0 }) // Z is irrelevant
+        false
     }
 
     ///Convert Vector3 to a vector of u8.
@@ -162,5 +162,58 @@ mod tests {
         assert_eq!(out.x, 1.7407765);
         assert_eq!(out.y, 1.7407765);
         assert_eq!(out.z, 4.351941);
+    }
+
+    #[test]
+    fn test_byte_conversion() {
+        let expected = Vector3::new(1.0, 2.0, 3.0);
+
+        let actual = Vector3::from_bytes(&expected.to_bytes());
+
+        assert_eq!(expected, actual.expect("FAIL!!"));
+    }
+
+    #[test]
+    fn test_from_bytes_fail() {
+        let expected = Vector3::new(1.0, 2.0, 3.0);
+        let mut expect = expected.to_bytes();
+        expect.pop();
+        let actual = Vector3::from_bytes(&expect);
+
+        assert_eq!(None, actual);
+    }
+
+    #[test]
+    fn test_print() {
+        let actual_vec = Vector3::new(1.0, 2.0, 3.0);
+        let actual = format!("[{},{},{}]", actual_vec.x, actual_vec.y, actual_vec.z);
+        let expected = format!("{}", actual_vec);
+        assert_eq!(actual, expected)
+    }
+
+    #[test]
+    fn test_will_intersect_true() {
+        let position_a = Vector3::new(5.0, 1.0, 1.0);
+        let a_vel = Vector3::new(-1.0, 1.0, 1.0);
+        let position_b = Vector3::new(-5.0, 1.0, 1.0);
+        let b_vel = Vector3::new(1.0, 1.0, 1.0);
+        let max_cycles = 10;
+        let tolerance = 0.1;
+        assert!(Vector3::will_intersect_in_n_cycles(
+            position_a, a_vel, position_b, b_vel, max_cycles, tolerance
+        ))
+    }
+
+    #[test]
+    fn test_will_intersect_false() {
+        let position_a = Vector3::new(1.0, 1.0, 1.0);
+        let a_vel = Vector3::new(1.0, 1.0, 1.0);
+        let position_b = Vector3::new(1.0, 3.0, 1.0);
+        let b_vel = Vector3::new(1.0, 1.0, 1.0);
+        let max_cycles = 10;
+        let tolerance = 0.1;
+        assert!(!Vector3::will_intersect_in_n_cycles(
+            position_a, a_vel, position_b, b_vel, max_cycles, tolerance
+        ))
     }
 }
