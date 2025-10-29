@@ -12,7 +12,6 @@ We have adopted several coding rules inspired by MISRA.
 4. No panics.
 5. All functions must return a Result type.
 6. All Result types must be explicitly checked.
-7. Naming conventions will follow RFC-430 (C-Case).
 
 ## Setup
 1. Clone project.
